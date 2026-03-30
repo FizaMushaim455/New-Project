@@ -63,8 +63,11 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
   const [systemLogs, setSystemLogs] = useState<string[]>([]);
   const [monitoringMode, setMonitoringMode] = useState<'both' | 'signs' | 'eye'>('both');
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
+  const [gazeButton, setGazeButton] = useState<string | null>(null);
+  const [gazeProgress, setGazeProgress] = useState(0);
   
   const gestureBufferRef = useRef<string[]>([]);
+  const gazeStartTimeRef = useRef<number>(0);
   const isProcessingRef = useRef<boolean>(false);
   const handleTranslateRef = useRef<() => void>(() => {});
 
@@ -332,6 +335,39 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
             if (distress > 0.7) {
               triggerAutoDistressAlert(distress);
             }
+            // --- GAZE DWELL LOGIC (FOR PARALYZED PATIENTS) ---
+            if (faceResults.faceLandmarks && faceResults.faceLandmarks.length > 0) {
+              const irisL = faceResults.faceLandmarks[0][468]; // Left Iris Center
+              const irisR = faceResults.faceLandmarks[0][473]; // Right Iris Center
+              const gazeX = (irisL.x + irisR.x) / 2;
+              const gazeY = (irisL.y + irisR.y) / 2;
+
+              let currentGaze: string | null = null;
+              // Map areas: Top Left(Water), Top Right(Food), Mid Left(Help), Mid Right(Nurse)
+              if (gazeY < 0.3) {
+                if (gazeX < 0.4) currentGaze = 'Water';
+                else if (gazeX > 0.6) currentGaze = 'Food';
+              } else if (gazeY > 0.7) {
+                if (gazeX < 0.4) currentGaze = 'Help';
+                else if (gazeX > 0.6) currentGaze = 'Nurse';
+              }
+
+              if (currentGaze && currentGaze === gazeButton) {
+                const elapsed = Date.now() - gazeStartTimeRef.current;
+                const progress = Math.min((elapsed / 2000) * 100, 100);
+                setGazeProgress(progress);
+                if (progress >= 100) {
+                  addLog(`👁️ GAZE: ${currentGaze}`);
+                  setGestureBuffer(prev => [...prev, currentGaze as string]);
+                  gazeStartTimeRef.current = Date.now() + 5000; // Cooldown
+                  setGazeProgress(0);
+                }
+              } else {
+                setGazeButton(currentGaze);
+                setGazeProgress(0);
+                gazeStartTimeRef.current = Date.now();
+              }
+            }
           }
         }
         ctx.restore();
@@ -424,6 +460,7 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
       try {
         console.log(`Attempting translation with: ${modelId}`);
         const ai = new GoogleGenAI({ 
+          // @ts-ignore
           apiKey: import.meta.env.VITE_GEMINI_API_KEY,
           apiVersion: 'v1beta'
         });
@@ -463,15 +500,18 @@ Task:
         const text = response.text;
         if (text) {
           const result = JSON.parse(text);
-          setFinalMessage(`${result.final_text} | ${result.urdu_text}`);
+          setFinalMessage(result.final_text);
           setUrgency(result.urgency);
-          speakText(result.final_text);
+          
+          // Bilingual Speech: English followed by Urdu
+          speakText(result.final_text, false);
+          setTimeout(() => speakText(result.urdu_text, true), 2000);
           
           if (socket) {
             socket.emit('send_message', {
               patientName: user.name,
               room: user.room,
-              text: result.final_text,
+              text: `${result.final_text} (${result.urdu_text})`,
               urgency: result.urgency,
               resolved: false
             });
@@ -493,9 +533,14 @@ Task:
     if (success) setGestureBuffer([]); // Clear only on success
   };
 
-  const speakText = (text: string) => {
+  const speakText = (text: string, isUrdu: boolean = false) => {
     if ('speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(text);
+      if (isUrdu) {
+        utterance.lang = 'ur-PK'; // Urdu (Pakistan)
+        utterance.pitch = 0.9;
+        utterance.rate = 0.9;
+      }
       window.speechSynthesis.speak(utterance);
     }
   };
@@ -609,24 +654,52 @@ Task:
                 className="absolute inset-0 w-full h-full object-cover mirror pointer-events-none"
               />
               
-              {/* Virtual Selection Buttons (HCI Overlay) */}
-              {isWebcamActive && monitoringMode !== 'eye' && (
-                <div className="absolute inset-0 pointer-events-none">
-                  <div className={`absolute top-4 left-4 w-28 h-20 rounded-2xl border-2 transition-all flex flex-col items-center justify-center bg-zinc-950/40 backdrop-blur-sm ${hoveredButton === 'Water' ? 'border-cyan-400 scale-110 shadow-[0_0_20px_rgba(6,182,212,0.5)]' : 'border-zinc-800'}`}>
-                    <span className="text-2xl mb-1">💧</span>
-                    <span className="text-[9px] font-mono font-bold text-zinc-100 uppercase tracking-widest">Water</span>
+              {/* Gaze HUD Overlay (Premium Glass Design) */}
+              {isWebcamActive && (
+                <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                  {/* Top Gaze Buttons */}
+                  <div className="absolute top-6 left-0 right-0 px-6 flex justify-between">
+                    <div className={`w-32 h-24 rounded-3xl border-2 backdrop-blur-xl transition-all flex flex-col items-center justify-center ${gazeButton === 'Water' || hoveredButton === 'Water' ? 'bg-cyan-500/20 border-cyan-400 scale-105 shadow-[0_0_30px_rgba(6,182,212,0.3)]' : 'bg-black/20 border-white/10'}`}>
+                      <span className="text-3xl mb-1 drop-shadow-lg">💧</span>
+                      <span className="text-[10px] font-mono font-black text-cyan-400 uppercase tracking-widest">Water</span>
+                      {gazeButton === 'Water' && (
+                        <div className="absolute inset-x-4 bottom-2 h-1 bg-white/10 rounded-full overflow-hidden">
+                          <div className="h-full bg-cyan-400 transition-all duration-100" style={{ width: `${gazeProgress}%` }} />
+                        </div>
+                      )}
+                    </div>
+                    <div className={`w-32 h-24 rounded-3xl border-2 backdrop-blur-xl transition-all flex flex-col items-center justify-center ${gazeButton === 'Food' || hoveredButton === 'Food' ? 'bg-amber-500/20 border-amber-400 scale-105 shadow-[0_0_30px_rgba(245,158,11,0.3)]' : 'bg-black/20 border-white/10'}`}>
+                      <span className="text-3xl mb-1 drop-shadow-lg">🍎</span>
+                      <span className="text-[10px] font-mono font-black text-amber-400 uppercase tracking-widest">Food</span>
+                      {gazeButton === 'Food' && (
+                        <div className="absolute inset-x-4 bottom-2 h-1 bg-white/10 rounded-full overflow-hidden">
+                          <div className="h-full bg-amber-400 transition-all duration-100" style={{ width: `${gazeProgress}%` }} />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className={`absolute top-4 right-4 w-28 h-20 rounded-2xl border-2 transition-all flex flex-col items-center justify-center bg-zinc-950/40 backdrop-blur-sm ${hoveredButton === 'Food' ? 'border-cyan-400 scale-110 shadow-[0_0_20px_rgba(6,182,212,0.5)]' : 'border-zinc-800'}`}>
-                    <span className="text-2xl mb-1">🍎</span>
-                    <span className="text-[9px] font-mono font-bold text-zinc-100 uppercase tracking-widest">Food</span>
-                  </div>
-                  <div className={`absolute bottom-4 left-4 w-28 h-20 rounded-2xl border-2 transition-all flex flex-col items-center justify-center bg-zinc-950/40 backdrop-blur-sm ${hoveredButton === 'Help' ? 'border-red-500 scale-110 shadow-[0_0_20px_rgba(239,68,68,0.5)]' : 'border-zinc-800'}`}>
-                    <span className="text-2xl mb-1">🆘</span>
-                    <span className="text-[9px] font-mono font-bold text-zinc-100 uppercase tracking-widest">Help</span>
-                  </div>
-                  <div className={`absolute bottom-4 right-4 w-28 h-20 rounded-2xl border-2 transition-all flex flex-col items-center justify-center bg-zinc-950/40 backdrop-blur-sm ${hoveredButton === 'Family' ? 'border-purple-400 scale-110 shadow-[0_0_20px_rgba(168,85,247,0.5)]' : 'border-zinc-800'}`}>
-                    <span className="text-2xl mb-1">👨‍👩‍👧</span>
-                    <span className="text-[9px] font-mono font-bold text-zinc-100 uppercase tracking-widest">Family</span>
+
+                  {/* Bottom HUD (Unified Status) */}
+                  <div className="absolute bottom-6 left-6 right-6 h-28 rounded-[2rem] bg-zinc-950/80 backdrop-blur-2xl border border-white/10 shadow-2xl flex items-center px-8 gap-8">
+                    <div className="flex-1">
+                      <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-[0.2em] mb-3">Distress Analysis</p>
+                      <div className="h-2 bg-zinc-900 rounded-full overflow-hidden border border-white/5">
+                        <div className={`h-full transition-all duration-500 ${distressScore > 70 ? 'bg-red-500' : distressScore > 40 ? 'bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]' : 'bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.5)]'}`} style={{ width: `${distressScore}%` }} />
+                      </div>
+                    </div>
+                    
+                    <div className="h-12 w-px bg-white/5" />
+                    
+                    <div className="flex gap-4">
+                      <div className={`px-5 py-2.5 rounded-2xl border transition-all flex items-center gap-3 ${isBlinking ? 'bg-cyan-500/10 border-cyan-400/50 text-cyan-400' : 'bg-zinc-900/50 border-white/5 text-zinc-500'}`}>
+                        <div className={`w-2 h-2 rounded-full ${isBlinking ? 'bg-cyan-400 animate-ping' : 'bg-zinc-700'}`} />
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-widest">Eye Track</span>
+                      </div>
+                      <div className={`px-5 py-2.5 rounded-2xl border transition-all flex items-center gap-3 ${monitoringMode !== 'eye' ? 'bg-violet-500/10 border-violet-400/50 text-violet-400' : 'bg-zinc-900/50 border-white/5 text-zinc-500'}`}>
+                        <div className={`w-2 h-2 rounded-full ${monitoringMode !== 'eye' ? 'bg-violet-400 animate-pulse' : 'bg-zinc-700'}`} />
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-widest">Hand Track</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
