@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { FilesetResolver, GestureRecognizer, FaceLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
 import { GoogleGenAI, Type } from '@google/genai';
-import { Loader2, Volume2, Trash2, Send, Hand, User, Activity } from 'lucide-react';
+import { Loader2, Volume2, Trash2, Send, Hand, User, Activity, HelpCircle, Bell } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 
 const GESTURE_MAP: Record<string, string> = {
   'Closed_Fist': 'Help',
-  'Open_Palm': 'Water',
   'Victory': 'Bathroom',
   'ILoveYou': 'Pain',
   'Thumb_Up': 'Yes',
@@ -16,7 +15,6 @@ const GESTURE_MAP: Record<string, string> = {
 
 const GESTURE_ICONS: Record<string, string> = {
   'Help': '✊',
-  'Water': '✋',
   'Bathroom': '✌️',
   'Pain': '🤟',
   'Yes': '👍',
@@ -24,12 +22,23 @@ const GESTURE_ICONS: Record<string, string> = {
   'Nurse': '🤙',
 };
 
+const LOCAL_QUICK_TRANSLATIONS: Record<string, { en: string; urgency: string }> = {
+  'Help': { en: 'I need assistance immediately.', urgency: 'medium' },
+  'Nurse': { en: 'Please call the nurse.', urgency: 'medium' },
+  'Bathroom': { en: 'I need to go to the bathroom.', urgency: 'medium' },
+  'Pain': { en: 'I am in pain.', urgency: 'high' },
+  'URGENT SOS': { en: 'EMERGENCY! I need immediate help!', urgency: 'high' },
+  'Yes': { en: 'Yes.', urgency: 'low' },
+  'No': { en: 'No.', urgency: 'low' },
+};
+
 interface PatientDashboardProps {
   user: { name: string; room: string; role: 'patient' | 'nurse' };
   onLogout: () => void;
+  onShowGuide: () => void;
 }
 
-export default function PatientDashboard({ user, onLogout }: PatientDashboardProps) {
+export default function PatientDashboard({ user, onLogout, onShowGuide }: PatientDashboardProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [recognizer, setRecognizer] = useState<GestureRecognizer | null>(null);
@@ -53,6 +62,7 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
   const lastTapTimeRef = useRef<number>(0);
   const lastIndexYRef = useRef<number>(0);
   const tapVelocityRef = useRef<number>(0);
+  const [showSOSOverlay, setShowSOSOverlay] = useState(false);
   const recognizerRef = useRef<GestureRecognizer | null>(null);
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
   
@@ -69,7 +79,9 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
   const gestureBufferRef = useRef<string[]>([]);
   const gazeStartTimeRef = useRef<number>(0);
   const isProcessingRef = useRef<boolean>(false);
-  const handleTranslateRef = useRef<() => void>(() => {});
+  const blinkCountRef = useRef<number>(0);
+  const lastBlinkMsgTimeRef = useRef<number>(0);
+  const handleTranslateRef = useRef<(overrideBuffer?: string[]) => void>(() => {});
 
   useEffect(() => {
     const newSocket = io();
@@ -88,7 +100,7 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
   }, [isProcessing]);
 
   useEffect(() => {
-    handleTranslateRef.current = handleTranslate;
+    handleTranslateRef.current = (buffer) => handleTranslate(buffer);
   });
 
   // Update refs when state changes
@@ -254,7 +266,7 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
           // --- POINT & CLICK LOGIC (HCI OVERHAUL) ---
           const indexTip = lm[8];
           const currentY = indexTip.y;
-          const currentX = indexTip.x;
+          const currentX = 1 - indexTip.x; // FLIP FOR MIRRORED UI
           
           // 1. Detect if hand is in a "Pointing" pose (Index extended, others folded)
           const isPointing = !isIndexFolded && isMiddleFolded && isRingFolded;
@@ -263,9 +275,7 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
           // Buttons are roughly: Water(TL), Food(TR), Help(BL), Family(BR)
           let newHover: string | null = null;
           if (isPointing) {
-            if (currentX < 0.4 && currentY < 0.4) newHover = 'Water';
-            else if (currentX > 0.6 && currentY < 0.4) newHover = 'Food';
-            else if (currentX < 0.4 && currentY > 0.6) newHover = 'Help';
+            if (currentX < 0.4 && currentY > 0.6) newHover = 'Help';
             else if (currentX > 0.6 && currentY > 0.6) newHover = 'Family';
           }
           setHoveredButton(newHover);
@@ -289,13 +299,10 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
         // --- DRAW FACE LANDMARKS ---
         if (faceResults && faceResults.faceLandmarks && faceResults.faceLandmarks.length > 0) {
           for (const landmarks of faceResults.faceLandmarks) {
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_TESSELATION, {
-              color: '#C0C0C070',
-              lineWidth: 1
-            });
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, { color: '#00FF00' });
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, { color: '#00FF00' });
-            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, { color: '#E0E0E0' });
+            // EXPLICIT: ONLY DRAW OUTLINES (NO TESSELLATION)
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, { color: '#00FFFF', lineWidth: 1.5 });
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, { color: '#00FFFF', lineWidth: 1.5 });
+            drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, { color: '#00FFFF', lineWidth: 1 });
           }
 
           // --- PROCESS BLINK & EMOTIONS ---
@@ -309,24 +316,40 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
             const mouthStretchL = blendshapes.find(b => b.categoryName === 'mouthStretchLeft')?.score || 0;
             const mouthStretchR = blendshapes.find(b => b.categoryName === 'mouthStretchRight')?.score || 0;
 
-            // Blink Logic (Dual eyes for 150ms+)
+            // Max Sensitivity Blink Logic (0.12 threshold)
             const avgBlink = (blinkL + blinkR) / 2;
-            if (avgBlink > 0.5) {
+            if (avgBlink > 0.12) {
               if (!isBlinking) {
                 setIsBlinking(true);
                 addLog("👁️ BLINK");
-                setBlinkCount(prev => prev + 1);
-                // Auto-reset blink count after 2 seconds
-                setTimeout(() => setBlinkCount(0), 2000);
+                
+                blinkCountRef.current += 1;
+                setBlinkCount(blinkCountRef.current);
+                lastBlinkMsgTimeRef.current = Date.now();
+                
+                // --- STEP 1: Check for Confirmation (2 blinks) ---
+                if (blinkCountRef.current === 2 && gestureBufferRef.current.length > 0) {
+                  addLog("👁️ CONFIRM BLINK");
+                  handleTranslateRef.current();
+                  blinkCountRef.current = 0;
+                  setBlinkCount(0);
+                }
+                
+                // --- STEP 2: Check for SOS (3 blinks) ---
+                if (blinkCountRef.current >= 3) {
+                  handleSOSBlink();
+                  blinkCountRef.current = 0;
+                  setBlinkCount(0);
+                }
               }
             } else {
               setIsBlinking(false);
-            }
-
-            // SOS Blink Logic: 3 blinks within 2 seconds
-            if (blinkCount >= 3) {
-              handleSOSBlink();
-              setBlinkCount(0);
+              // Auto-reset if inactive for 2.5 seconds
+              const timeSinceBlink = Date.now() - lastBlinkMsgTimeRef.current;
+              if (timeSinceBlink > 2500 && blinkCountRef.current > 0) {
+                blinkCountRef.current = 0;
+                setBlinkCount(0);
+              }
             }
 
             // Distress Logic: Brow down + Mouth stretch
@@ -339,26 +362,32 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
             if (faceResults.faceLandmarks && faceResults.faceLandmarks.length > 0) {
               const irisL = faceResults.faceLandmarks[0][468]; // Left Iris Center
               const irisR = faceResults.faceLandmarks[0][473]; // Right Iris Center
-              const gazeX = (irisL.x + irisR.x) / 2;
+              const gazeX = 1 - ((irisL.x + irisR.x) / 2); // FLIP FOR MIRRORED UI
               const gazeY = (irisL.y + irisR.y) / 2;
 
               let currentGaze: string | null = null;
               // Map areas: Top Left(Water), Top Right(Food), Mid Left(Help), Mid Right(Nurse)
-              if (gazeY < 0.3) {
-                if (gazeX < 0.4) currentGaze = 'Water';
-                else if (gazeX > 0.6) currentGaze = 'Food';
-              } else if (gazeY > 0.7) {
-                if (gazeX < 0.4) currentGaze = 'Help';
-                else if (gazeX > 0.6) currentGaze = 'Nurse';
+              if (gazeY > 0.6) {
+                if (gazeX > 0.3 && gazeX < 0.7) currentGaze = 'Confirm';
+                else if (gazeX < 0.3) currentGaze = 'Help';
+                else if (gazeX > 0.7) currentGaze = 'Nurse';
               }
 
               if (currentGaze && currentGaze === gazeButton) {
                 const elapsed = Date.now() - gazeStartTimeRef.current;
-                const progress = Math.min((elapsed / 2000) * 100, 100);
+                const progress = Math.min((elapsed / 800) * 100, 100); // Super-Gaze: 800ms
                 setGazeProgress(progress);
                 if (progress >= 100) {
                   addLog(`👁️ GAZE: ${currentGaze}`);
-                  setGestureBuffer(prev => [...prev, currentGaze as string]);
+                  if (currentGaze === 'Confirm') {
+                    if (gestureBufferRef.current.length > 0) {
+                      handleTranslateRef.current();
+                    } else {
+                      addLog("⚠️ BUFFER EMPTY");
+                    }
+                  } else {
+                    setGestureBuffer(prev => [...prev, currentGaze as string]);
+                  }
                   gazeStartTimeRef.current = Date.now() + 5000; // Cooldown
                   setGazeProgress(0);
                 }
@@ -398,7 +427,8 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
               gestureFramesRef.current = 1;
             }
 
-            if (gestureFramesRef.current > 15) {
+            if (gestureFramesRef.current > 10) { // Super-Fast OK: 0.6s
+              speakText("Sending confirmed request.");
               handleTranslateRef.current();
               gestureFramesRef.current = 0;
             }
@@ -415,13 +445,24 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
           }
 
           const now = Date.now();
+          // AUTO-SEND: If consistent for 25 frames (~1.5s), send immediately
+          if (gestureFramesRef.current > 25) {
+            const meaning = GESTURE_MAP[detectedGesture];
+            if (meaning && !isProcessingRef.current) {
+              speakText(`Sending ${meaning} request.`);
+              handleTranslateRef.current([meaning]);
+              gestureFramesRef.current = 0;
+              lastAddedTimeRef.current = now;
+            }
+          }
+          
           // Require 10 frames of consistent gesture and 1.5s cooldown between adding the same gesture
           if (gestureFramesRef.current > 10 && (now - lastAddedTimeRef.current > 1500)) {
             const meaning = GESTURE_MAP[detectedGesture];
             if (meaning) {
               setGestureBuffer(prev => [...prev, meaning]);
               lastAddedTimeRef.current = now;
-              gestureFramesRef.current = 0; // Reset
+              // No reset here, wait for auto-send or manual confirm
             }
           }
         } else {
@@ -442,95 +483,89 @@ export default function PatientDashboard({ user, onLogout }: PatientDashboardPro
   };
 
   // Call Gemini API with Fallback Logic
-  const handleTranslate = async () => {
-    const currentBuffer = gestureBufferRef.current;
+  const handleTranslate = async (overrideBuffer?: string[]) => {
+    const currentBuffer = overrideBuffer || gestureBufferRef.current;
     if (currentBuffer.length === 0) return;
     
     setIsProcessing(true);
     setFinalMessage(null);
     setUrgency(null);
 
-    // List of models available on your system to try in order
-    const modelFallback = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-pro-latest'];
-    let success = false;
-
-    for (const modelId of modelFallback) {
-      if (success) break;
-
-      try {
-        console.log(`Attempting translation with: ${modelId}`);
-        const ai = new GoogleGenAI({ 
-          // @ts-ignore
-          apiKey: import.meta.env.VITE_GEMINI_API_KEY,
-          apiVersion: 'v1beta'
+    // --- STEP 1: LOCAL FAST-PATH (Instant Response) ---
+    const bufferKey = currentBuffer.join('+');
+    if (LOCAL_QUICK_TRANSLATIONS[bufferKey]) {
+      const result = LOCAL_QUICK_TRANSLATIONS[bufferKey];
+      console.log("⚡ Fast-Path Triggered:", bufferKey);
+      setFinalMessage(result.en);
+      setUrgency(result.urgency);
+      
+      speakText(result.en, false);
+      if (socket) {
+        socket.emit('send_message', {
+          patientName: user.name,
+          room: user.room,
+          text: result.en,
+          urgency: result.urgency,
+          resolved: false
         });
-
-        const response = await ai.models.generateContent({
-          model: modelId,
-          contents: `You are assisting a gesture-to-text communication app for patients in Pakistan who may speak Urdu or English.
-Input:
-- recognized_gestures: ${JSON.stringify(currentBuffer)}
-
-Task:
-1. Infer the message and rewrite it as a natural sentence in BOTH English and Urdu.
-2. Determine urgency (low, medium, high).`,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                final_text: {
-                  type: Type.STRING,
-                  description: "The English sentence."
-                },
-                urdu_text: {
-                  type: Type.STRING,
-                  description: "The Urdu translation."
-                },
-                urgency: {
-                  type: Type.STRING,
-                  description: "Urgency level."
-                }
-              },
-              required: ['final_text', 'urdu_text', 'urgency']
-            }
-          }
-        });
-
-        const text = response.text;
-        if (text) {
-          const result = JSON.parse(text);
-          setFinalMessage(result.final_text);
-          setUrgency(result.urgency);
-          
-          // Bilingual Speech: English followed by Urdu
-          speakText(result.final_text, false);
-          setTimeout(() => speakText(result.urdu_text, true), 2000);
-          
-          if (socket) {
-            socket.emit('send_message', {
-              patientName: user.name,
-              room: user.room,
-              text: `${result.final_text} (${result.urdu_text})`,
-              urgency: result.urgency,
-              resolved: false
-            });
-          }
-          success = true;
-          console.log(`✅ Success with ${modelId}`);
-        }
-      } catch (error: any) {
-        console.warn(`⚠️ Error with ${modelId}:`, error.message);
-        // If we are on the last model and still failing, show error to user
-        if (modelId === modelFallback[modelFallback.length - 1]) {
-          setFinalMessage("Service is currently overloaded. Please wait a moment and try again.");
-        }
-        // Continue to next model in loop...
       }
+      setIsProcessing(false);
+      setGestureBuffer([]);
+      return; 
+    }
+
+    // --- STEP 2: CLOUD AI (For Complex Patterns) ---
+    const modelToUse = 'gemini-1.5-flash';
+    
+    try {
+      console.log(`Cloud AI translation: ${modelToUse}`);
+      const ai = new GoogleGenAI({ 
+        // @ts-ignore
+        apiKey: import.meta.env.VITE_GEMINI_API_KEY,
+        apiVersion: 'v1beta'
+      });
+
+      const response = await ai.models.generateContent({
+        model: modelToUse,
+        contents: `Input Sequence: ${JSON.stringify(currentBuffer)}\nTranslate to a natural English sentence. Result in JSON {final_text, urgency}.`,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              final_text: { type: Type.STRING },
+              urgency: { type: Type.STRING }
+            },
+            required: ['final_text', 'urgency']
+          }
+        }
+      });
+
+      const text = response.text;
+      if (text) {
+        const result = JSON.parse(text);
+        setFinalMessage(result.final_text);
+        setUrgency(result.urgency);
+        
+        speakText(result.final_text, false);
+        
+        if (socket) {
+          socket.emit('send_message', {
+            patientName: user.name,
+            room: user.room,
+            text: result.final_text,
+            urgency: result.urgency,
+            resolved: false
+          });
+        }
+        setGestureBuffer([]);
+      }
+    } catch (error: any) {
+      console.warn(`Translation Error:`, error.message);
+      setFinalMessage("System communication error. Please try again.");
     }
 
     setIsProcessing(false);
-    if (success) setGestureBuffer([]); // Clear only on success
   };
 
   const speakText = (text: string, isUrdu: boolean = false) => {
@@ -558,10 +593,17 @@ Task:
   // --- NEW MULTI-MODAL LOGIC ---
   
   const handleSOSBlink = () => {
-    if (isProcessingRef.current) return;
+    // SOS SHOULD NEVER BE BLOCKED BY PROCESSING
     addLog("🆘 SOS PATTERN DETECTED");
-    setGestureBuffer(["URGENT SOS"]);
-    handleTranslate();
+    const sosBuffer = ["URGENT SOS"];
+    setGestureBuffer(sosBuffer);
+    
+    // Immediate Visual Feedback for Patient
+    setShowSOSOverlay(true);
+    setTimeout(() => setShowSOSOverlay(false), 3000);
+
+    // Immediate Translation & Socket Emission
+    handleTranslate(sosBuffer);
   };
 
   const triggerAutoDistressAlert = (score: number) => {
@@ -600,11 +642,19 @@ Task:
               <p className="text-[10px] text-cyan-500 font-mono uppercase tracking-widest">Patient Terminal</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-zinc-400 bg-zinc-950 px-4 py-2 rounded-full border border-zinc-800 uppercase tracking-wider">
               <User className="w-3.5 h-3.5 text-cyan-500" />
               {user.name} <span className="text-zinc-600">|</span> RM {user.room}
             </div>
+            <button
+              onClick={onShowGuide}
+              title="System Guide"
+              className="flex items-center gap-1.5 text-xs font-mono text-zinc-400 hover:text-cyan-400 px-3 py-2 rounded-lg hover:bg-zinc-800 border border-zinc-800 hover:border-cyan-500/30 transition-all uppercase tracking-widest"
+            >
+              <HelpCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">Guide</span>
+            </button>
             <button
               onClick={onLogout}
               className="text-xs font-mono text-zinc-500 hover:text-zinc-300 transition-colors px-3 py-2 rounded-lg hover:bg-zinc-800 uppercase tracking-widest"
@@ -654,193 +704,168 @@ Task:
                 className="absolute inset-0 w-full h-full object-cover mirror pointer-events-none"
               />
               
-              {/* Gaze HUD Overlay (Premium Glass Design) */}
+              {/* Gaze HUD Overlay (Interactive Elements Only) */}
               {isWebcamActive && (
-                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                  {/* Top Gaze Buttons */}
-                  <div className="absolute top-6 left-0 right-0 px-6 flex justify-between">
-                    <div className={`w-32 h-24 rounded-3xl border-2 backdrop-blur-xl transition-all flex flex-col items-center justify-center ${gazeButton === 'Water' || hoveredButton === 'Water' ? 'bg-cyan-500/20 border-cyan-400 scale-105 shadow-[0_0_30px_rgba(6,182,212,0.3)]' : 'bg-black/20 border-white/10'}`}>
-                      <span className="text-3xl mb-1 drop-shadow-lg">💧</span>
-                      <span className="text-[10px] font-mono font-black text-cyan-400 uppercase tracking-widest">Water</span>
-                      {gazeButton === 'Water' && (
-                        <div className="absolute inset-x-4 bottom-2 h-1 bg-white/10 rounded-full overflow-hidden">
-                          <div className="h-full bg-cyan-400 transition-all duration-100" style={{ width: `${gazeProgress}%` }} />
-                        </div>
-                      )}
-                    </div>
-                    <div className={`w-32 h-24 rounded-3xl border-2 backdrop-blur-xl transition-all flex flex-col items-center justify-center ${gazeButton === 'Food' || hoveredButton === 'Food' ? 'bg-amber-500/20 border-amber-400 scale-105 shadow-[0_0_30px_rgba(245,158,11,0.3)]' : 'bg-black/20 border-white/10'}`}>
-                      <span className="text-3xl mb-1 drop-shadow-lg">🍎</span>
-                      <span className="text-[10px] font-mono font-black text-amber-400 uppercase tracking-widest">Food</span>
-                      {gazeButton === 'Food' && (
-                        <div className="absolute inset-x-4 bottom-2 h-1 bg-white/10 rounded-full overflow-hidden">
-                          <div className="h-full bg-amber-400 transition-all duration-100" style={{ width: `${gazeProgress}%` }} />
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                <>
+                  {/* Top Gaze Buttons Removed for Simplicity */}
 
-                  {/* Bottom HUD (Unified Status) */}
-                  <div className="absolute bottom-6 left-6 right-6 h-28 rounded-[2rem] bg-zinc-950/80 backdrop-blur-2xl border border-white/10 shadow-2xl flex items-center px-8 gap-8">
-                    <div className="flex-1">
-                      <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-[0.2em] mb-3">Distress Analysis</p>
-                      <div className="h-2 bg-zinc-900 rounded-full overflow-hidden border border-white/5">
-                        <div className={`h-full transition-all duration-500 ${distressScore > 70 ? 'bg-red-500' : distressScore > 40 ? 'bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]' : 'bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.5)]'}`} style={{ width: `${distressScore}%` }} />
-                      </div>
-                    </div>
-                    
-                    <div className="h-12 w-px bg-white/5" />
-                    
-                    <div className="flex gap-4">
-                      <div className={`px-5 py-2.5 rounded-2xl border transition-all flex items-center gap-3 ${isBlinking ? 'bg-cyan-500/10 border-cyan-400/50 text-cyan-400' : 'bg-zinc-900/50 border-white/5 text-zinc-500'}`}>
-                        <div className={`w-2 h-2 rounded-full ${isBlinking ? 'bg-cyan-400 animate-ping' : 'bg-zinc-700'}`} />
-                        <span className="text-[10px] font-mono font-bold uppercase tracking-widest">Eye Track</span>
-                      </div>
-                      <div className={`px-5 py-2.5 rounded-2xl border transition-all flex items-center gap-3 ${monitoringMode !== 'eye' ? 'bg-violet-500/10 border-violet-400/50 text-violet-400' : 'bg-zinc-900/50 border-white/5 text-zinc-500'}`}>
-                        <div className={`w-2 h-2 rounded-full ${monitoringMode !== 'eye' ? 'bg-violet-400 animate-pulse' : 'bg-zinc-700'}`} />
-                        <span className="text-[10px] font-mono font-bold uppercase tracking-widest">Hand Track</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Current Gesture Overlay */}
-              {isWebcamActive && (
-                <div className="absolute top-4 left-4 flex flex-col gap-2">
-                  <div className="bg-zinc-950/80 backdrop-blur-md text-zinc-100 px-4 py-2 rounded-xl font-mono text-sm border border-zinc-800 flex items-center gap-3 shadow-2xl">
-                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.8)]" />
-                    {currentGesture !== 'None' ? (
-                      <span className="flex items-center gap-2">
-                        <span className="text-xl">{GESTURE_ICONS[GESTURE_MAP[currentGesture]] || '✋'}</span>
-                        {GESTURE_MAP[currentGesture] || currentGesture.replace('_', ' ')}
+                  {/* Central Status HUD - Ultra Minimalist Corner */}
+                  <div className="absolute top-6 left-6 flex items-center gap-2">
+                    <div className="bg-black/30 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-2 shadow-2xl transition-all opacity-80 hover:opacity-100">
+                      <div className={`w-1.5 h-1.5 rounded-full ${currentGesture !== 'None' ? 'bg-cyan-400 animate-pulse' : 'bg-zinc-700'}`} />
+                      <span className="font-mono text-[9px] font-bold text-white/50 uppercase tracking-[0.2em]">
+                        {currentGesture !== 'None' ? (
+                          <span className="flex items-center gap-2">
+                             {GESTURE_MAP[currentGesture] || currentGesture.replace('_', ' ')}
+                          </span>
+                        ) : 'STANDBY'}
                       </span>
-                    ) : (
-                      <span className="text-zinc-500 text-xs uppercase tracking-widest">Awaiting Input...</span>
-                    )}
+                    </div>
+                  </div>
+
+                  {/* Bottom Gaze Button - Confirm (Sleek Floating Pill) */}
+                  <div className="absolute bottom-20 left-1/2 -translate-x-1/2 pointer-events-none">
+                    <div className={`px-8 py-3 rounded-full border-2 backdrop-blur-2xl transition-all flex items-center gap-3 overflow-hidden ${gazeButton === 'Confirm' ? 'bg-emerald-500/40 border-emerald-400 scale-110 shadow-[0_0_50px_rgba(16,185,129,0.5)] opacity-100' : 'bg-black/20 border-white/5 opacity-40 hover:opacity-100'}`}>
+                      <span className="text-xl">✅</span>
+                      <span className="text-[10px] font-mono font-black text-white uppercase tracking-[0.2em]">Confirm & Send</span>
+                      {gazeButton === 'Confirm' && (
+                        <div className="absolute inset-x-0 bottom-0 h-1 bg-emerald-500/20">
+                           <div className="h-full bg-emerald-400 transition-all duration-[2000ms] ease-linear" style={{ width: `${gazeProgress}%` }} />
+                        </div>
+                      )}
+                    </div>
                   </div>
                   
-                  {/* Eye & Tap Indicators */}
-                  <div className="flex gap-2">
-                    <div className={`px-3 py-1.5 rounded-lg border font-mono text-[10px] uppercase tracking-wider flex items-center gap-2 transition-all ${isBlinking ? 'bg-cyan-500/20 border-cyan-400 text-cyan-400' : 'bg-zinc-950/80 border-zinc-800 text-zinc-500'}`}>
-                      {isBlinking ? '👁️ Blink Detected' : '👁️ Eyes Open'}
-                    </div>
-                    {blinkCount > 0 && (
-                      <div className="px-3 py-1.5 rounded-lg bg-orange-500/20 border border-orange-400 text-orange-400 font-mono text-[10px] uppercase tracking-wider animate-bounce">
-                        Blink Pattern: {blinkCount}/3
+                  {/* Minimalist Floating Status Bar */}
+                  <div className="absolute bottom-4 inset-x-8 h-12 rounded-full bg-black/40 backdrop-blur-2xl border border-white/5 flex items-center justify-between px-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)] pointer-events-none">
+                    <div className="flex items-center gap-6">
+                      <div className={`flex items-center gap-2 text-[8px] font-mono uppercase tracking-[0.2em] transition-all ${isBlinking ? 'text-cyan-400' : 'text-white/30'}`}>
+                        <div className={`w-1 h-1 rounded-full ${isBlinking ? 'bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,1)]' : 'bg-white/10'}`} />
+                        Blink
                       </div>
-                    )}
-                    {tapCount > 0 && (
-                      <div className="px-3 py-1.5 rounded-lg bg-purple-500/20 border border-purple-400 text-purple-400 font-mono text-[10px] uppercase tracking-wider animate-pulse">
-                        👆 Tap: {tapCount}
+                      <div className={`flex items-center gap-2 text-[8px] font-mono uppercase tracking-[0.2em] transition-all ${monitoringMode !== 'eye' ? 'text-violet-400' : 'text-white/30'}`}>
+                        <div className={`w-1 h-1 rounded-full ${monitoringMode !== 'eye' ? 'bg-violet-400 shadow-[0_0_8px_rgba(124,111,224,1)]' : 'bg-white/10'}`} />
+                        Hands
                       </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              {/* Distress Meter Overlay */}
-              {isWebcamActive && (
-                <div className="absolute right-4 bottom-4 w-40">
-                  <div className="bg-zinc-950/80 backdrop-blur-md p-3 rounded-xl border border-zinc-800 shadow-2xl">
-                    <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-2 flex justify-between">
-                      Distress Level <span>{Math.round(distressScore)}%</span>
-                    </p>
-                    <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full transition-all duration-300 ${distressScore > 70 ? 'bg-red-500' : distressScore > 40 ? 'bg-amber-500' : 'bg-cyan-500'}`}
-                        style={{ width: `${distressScore}%` }}
-                      />
                     </div>
-                  </div>
-                </div>
-              )}
+                    
+                    {/* System Log Ticker */}
+                    <div className="flex-1 flex justify-center overflow-hidden h-full items-center px-4">
+                      <p className="text-[8px] font-mono text-white/40 uppercase tracking-widest whitespace-nowrap">
+                        {systemLogs[0] || 'System Ready • Monitoring Passive'}
+                      </p>
+                    </div>
 
-              {/* Diagnostic System Logs */}
-              {isWebcamActive && systemLogs.length > 0 && (
-                <div className="absolute left-4 bottom-4 flex flex-col gap-1 pointer-events-none">
-                  {systemLogs.map((log, i) => (
-                    <div key={i} className="bg-cyan-500/90 text-zinc-950 px-3 py-1 rounded-md text-[9px] font-bold font-mono tracking-tighter animate-in slide-in-from-left-2 fade-in duration-300">
-                      {log}
+                    <div className="flex gap-4">
+                      <div className="flex items-center gap-2 bg-white/5 px-3 py-1 rounded-full border border-white/5">
+                         <span className="text-[8px] font-mono text-white/50">{Math.round(distressScore)}% Distress</span>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                </>
               )}
             </div>
           </div>
 
-          <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 flex flex-col shadow-xl">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="font-mono text-xs text-zinc-500 uppercase tracking-widest">Active Monitoring Mode</h2>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <button 
-                onClick={() => setMonitoringMode('signs')}
-                className={`py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest border transition-all ${monitoringMode === 'signs' ? 'bg-cyan-500 border-cyan-400 text-zinc-950 font-bold' : 'bg-zinc-950 border-zinc-800 text-zinc-500'}`}
-              >
-                Signs Only
-              </button>
-              <button 
-                onClick={() => setMonitoringMode('eye')}
-                className={`py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest border transition-all ${monitoringMode === 'eye' ? 'bg-cyan-500 border-cyan-400 text-zinc-950 font-bold' : 'bg-zinc-950 border-zinc-800 text-zinc-500'}`}
-              >
-                Eye Only
-              </button>
-              <button 
-                onClick={() => setMonitoringMode('both')}
-                className={`py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest border transition-all ${monitoringMode === 'both' ? 'bg-cyan-500 border-cyan-400 text-zinc-950 font-bold' : 'bg-zinc-950 border-zinc-800 text-zinc-500'}`}
-              >
-                Full Monitor
-              </button>
-            </div>
+          {/* Minimalist Control Toggles */}
+          <div className="bg-black/20 backdrop-blur-xl rounded-full p-1.5 border border-white/5 flex items-center justify-between w-full shadow-lg">
+             <div className="flex gap-1 ml-1">
+                {['signs', 'eye', 'both'].map((mode) => (
+                  <button 
+                    key={mode}
+                    onClick={() => setMonitoringMode(mode as any)}
+                    className={`px-4 py-1.5 rounded-full text-[9px] font-mono uppercase tracking-widest transition-all ${monitoringMode === mode ? 'bg-white/10 text-white shadow-inner font-bold' : 'text-white/40 hover:text-white/60'}`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+             </div>
+             <div className="flex gap-4 mr-4 text-white/20 font-mono text-[9px] uppercase tracking-tighter">
+                {blinkCount > 0 && <span>Blink Ptn: {blinkCount}/3</span>}
+                {tapCount > 0 && <span>Air Taps: {tapCount}</span>}
+             </div>
           </div>
 
-          <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 flex-1 shadow-xl">
-            <h2 className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-5">Available Gestures</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {Object.entries(GESTURE_MAP).map(([key, value]) => (
-                <div key={key} className="flex items-center gap-3 p-3 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-cyan-500/50 transition-all hover:shadow-[0_0_15px_rgba(6,182,212,0.1)] group">
-                  <span className="text-2xl drop-shadow-sm group-hover:scale-110 transition-transform">{GESTURE_ICONS[value]}</span>
-                  <span className="font-medium text-zinc-300 text-sm">{value}</span>
+          {/* Real-time Hand Sign Reference Bar (Sleek Icons) */}
+          <div className="flex flex-wrap gap-2 mt-4 px-1 justify-center">
+            {Object.entries(GESTURE_MAP).map(([gestureName, meaning]) => (
+              <div key={gestureName} className="bg-black/30 backdrop-blur-xl rounded-2xl px-4 py-2 border border-white/5 flex items-center gap-3 group hover:bg-cyan-500/10 hover:border-cyan-500/20 transition-all cursor-default">
+                <span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">
+                  {GESTURE_ICONS[meaning]}
+                </span>
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-mono font-black text-white/50 uppercase tracking-widest leading-none group-hover:text-cyan-400">
+                    {meaning}
+                  </span>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
+          </div>
 
-            <div className="mt-5 p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-xl flex items-center gap-4 text-cyan-400 shadow-sm">
-              <span className="text-2xl drop-shadow-sm">👌</span>
-              <div className="font-medium text-sm">
-                <p>Make an OK gesture to send the message</p>
-                {isProcessing && <p className="text-cyan-300 flex items-center gap-2 mt-1 text-xs font-mono uppercase tracking-widest"><Loader2 className="w-3 h-3 animate-spin" /> Processing...</p>}
+          {/* Sleek Command Guide */}
+          <div className="bg-black/20 backdrop-blur-xl rounded-3xl border border-white/5 p-6 flex-1 shadow-2xl relative overflow-hidden mt-4">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 blur-3xl rounded-full" />
+            <h2 className="text-[10px] font-mono text-white/30 uppercase tracking-[0.3em] mb-6">Hands-Free Guide</h2>
+            <div className="space-y-4">
+              <div className="flex items-center gap-4 group">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-xl transition-transform group-hover:scale-110">✅</div>
+                <div>
+                  <p className="text-[11px] font-bold text-white/80">Confirm & Send</p>
+                  <p className="text-[9px] text-white/40 italic">Stare at the green check OR blink twice rapidly.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 group">
+                <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-xl transition-transform group-hover:scale-110">👌</div>
+                <div>
+                  <p className="text-[11px] font-bold text-white/80">Confirm (Gesture)</p>
+                  <p className="text-[9px] text-white/40">Hold OK gesture for 1s to send.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 group">
+                <div className="w-10 h-10 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-xl transition-transform group-hover:scale-110">👁️</div>
+                <div>
+                  <p className="text-[11px] font-bold text-white/80">Gaze Dwell</p>
+                  <p className="text-[9px] text-white/40">Stare at "Nurse" or "Help" at the bottom to add them.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 group">
+                <div className="w-10 h-10 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-xl transition-transform group-hover:scale-110">🆘</div>
+                <div>
+                  <p className="text-[11px] font-bold text-white/80">Emergency SOS</p>
+                  <p className="text-[9px] text-white/40 italic">Blink 3 times rapidly for immediate alert.</p>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right Column: Translation & Output */}
+        {/* Right Column: Output & Sequence */}
         <div className="lg:col-span-5 space-y-6 flex flex-col">
           
-          {/* Gesture Buffer */}
-          <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 flex-1 flex flex-col shadow-xl">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="font-mono text-xs text-zinc-500 uppercase tracking-widest">Current Sequence</h2>
+          {/* Sleek Sequence Buffer */}
+          <div className="bg-black/20 backdrop-blur-xl rounded-3xl border border-white/5 p-6 flex-1 flex flex-col shadow-2xl relative overflow-hidden">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-[10px] font-mono text-white/30 uppercase tracking-[0.3em]">Active Sequence</h2>
               <button 
                 onClick={clearBuffer}
                 disabled={gestureBuffer.length === 0}
-                className="text-zinc-500 hover:text-red-400 disabled:opacity-50 transition-colors p-1.5 hover:bg-zinc-800 rounded-lg"
+                className="text-white/20 hover:text-red-400 disabled:opacity-0 transition-all p-2 hover:bg-white/5 rounded-full"
                 title="Clear sequence"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
             
-            <div className="flex-1 bg-zinc-950 rounded-xl border border-zinc-800 p-5 mb-4 min-h-[140px] flex flex-wrap content-start gap-2 shadow-inner">
+            <div className="flex-1 min-h-[120px] flex flex-wrap content-start gap-2">
               {gestureBuffer.length === 0 ? (
-                <div className="w-full h-full flex flex-col items-center justify-center text-zinc-600 text-xs font-mono uppercase tracking-widest gap-2">
-                  <Hand className="w-6 h-6 opacity-20" />
-                  Awaiting Gestures
+                <div className="w-full h-full flex flex-col items-center justify-center text-[9px] font-mono text-white/10 uppercase tracking-widest gap-3">
+                  <Activity className="w-8 h-8 opacity-10 animate-pulse" />
+                  Listening for input
                 </div>
               ) : (
                 gestureBuffer.map((gesture, idx) => (
-                  <div key={idx} className="flex items-center gap-2 bg-zinc-800 border border-zinc-700 shadow-sm px-3 py-1.5 rounded-lg text-sm font-medium text-zinc-200 animate-in fade-in zoom-in duration-200">
-                    <span className="text-base">{GESTURE_ICONS[gesture]}</span>
+                  <div key={idx} className="flex items-center gap-2 bg-white/5 border border-white/5 px-3 py-2 rounded-2xl text-[11px] font-medium text-white/70 animate-in fade-in zoom-in slide-in-from-top-2 duration-300">
+                    <span className="opacity-80">{GESTURE_ICONS[gesture]}</span>
                     {gesture}
                   </div>
                 ))
@@ -848,22 +873,22 @@ Task:
             </div>
           </div>
 
-          {/* Final Output */}
-          <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-8 relative overflow-hidden min-h-[220px] flex flex-col justify-center shadow-xl">
-            {/* Decorative background elements */}
-            <div className="absolute top-0 right-0 -mt-8 -mr-8 w-32 h-32 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-32 h-32 bg-violet-500/10 rounded-full blur-3xl pointer-events-none" />
+          {/* AI Translation Output */}
+          <div className="bg-black/20 backdrop-blur-3xl rounded-[2.5rem] border border-white/10 p-10 relative overflow-hidden min-h-[260px] flex flex-col justify-center shadow-2xl">
+            {/* Visual glow effects */}
+            <div className="absolute -top-20 -right-20 w-64 h-64 bg-cyan-400/10 blur-[100px] rounded-full animate-pulse" />
+            <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-violet-400/10 blur-[100px] rounded-full animate-pulse" />
             
             <div className="relative z-10">
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="font-mono text-xs text-zinc-500 uppercase tracking-widest">AI Translation</h2>
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-[10px] font-mono text-white/20 uppercase tracking-[0.4em]">Gemini AI Core</h2>
                 {urgency && (
-                  <span className={`text-[10px] font-mono font-bold px-2.5 py-1 rounded-md uppercase tracking-widest shadow-sm ${
-                    urgency === 'high' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 
-                    urgency === 'medium' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                   <div className={`px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-[0.2em] shadow-lg ${
+                    urgency === 'high' ? 'bg-red-500/20 text-red-400 border border-red-500/20' : 
+                    urgency === 'medium' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20'
                   }`}>
-                    {urgency} Priority
-                  </span>
+                    {urgency}
+                  </div>
                 )}
               </div>
               
@@ -893,9 +918,38 @@ Task:
         </div>
       </main>
 
+      {/* Emergency SOS Overlay */}
+      {showSOSOverlay && (
+        <div className="fixed inset-0 z-[100] bg-red-600/60 backdrop-blur-3xl flex flex-col items-center justify-center animate-pulse duration-500">
+           <div className="bg-red-950 p-12 rounded-[3.5rem] border-4 border-red-500 shadow-[0_0_100px_rgba(239,68,68,0.7)] flex flex-col items-center gap-8 animate-in zoom-in duration-300">
+              <div className="w-32 h-32 bg-red-500 rounded-full flex items-center justify-center animate-bounce">
+                <Bell className="w-16 h-16 text-white" />
+              </div>
+              <div className="text-center">
+                 <h2 className="text-5xl font-display font-black text-white uppercase tracking-tighter mb-2">URGENT SOS SENT</h2>
+                 <p className="text-xl font-mono text-red-200 uppercase tracking-widest">Medical assistance is on the way</p>
+              </div>
+           </div>
+        </div>
+      )}
+
       <style>{`
         .mirror {
           transform: scaleX(-1);
+        }
+        @keyframes pulse-fast {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+        .pulse-fast {
+          animation: pulse-fast 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .font-display {
+          font-family: 'Inter', system-ui, sans-serif;
+        }
+        .backdrop-blur-xl {
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
         }
       `}</style>
     </div>

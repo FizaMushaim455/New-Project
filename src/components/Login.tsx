@@ -3,12 +3,13 @@ import { UserCircle, Hand, ArrowRight, Stethoscope, User } from 'lucide-react';
 
 interface LoginProps {
   onLogin: (user: { name: string; room: string; role: 'patient' | 'nurse' }) => void;
+  initialRole?: 'patient' | 'nurse';
 }
 
-export default function Login({ onLogin }: LoginProps) {
+export default function Login({ onLogin, initialRole = 'patient' }: LoginProps) {
   const [name, setName] = useState('');
   const [room, setRoom] = useState('');
-  const [role, setRole] = useState<'patient' | 'nurse'>('patient');
+  const [role, setRole] = useState<'patient' | 'nurse'>(initialRole);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();

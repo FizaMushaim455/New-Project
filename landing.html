@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>SilentCare Pro — AI Patient Monitoring System</title>
+<meta name="description" content="SilentCare Pro bridges communication for non-verbal and paralyzed patients using Computer Vision and Generative AI. Developed by Fiza Mushaim."/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#050d1a;
+  --bg2:#080f20;
+  --bg3:#0a1328;
+  --cyan:#00c8ff;
+  --cyan2:#00e5ff;
+  --violet:#7c6fe0;
+  --violet2:#a89cf7;
+  --red:#ff4060;
+  --glass:rgba(255,255,255,0.04);
+  --glass-border:rgba(0,200,255,0.15);
+  --text:#e8f0fe;
+  --text-muted:#7a90b5;
+  --heading-font:'Outfit',sans-serif;
+  --body-font:'Inter',sans-serif;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--body-font);overflow-x:hidden;line-height:1.6}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--violet);border-radius:3px}
+
+/* ── CANVAS ── */
+#particle-canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:.45}
+
+/* ── NAV ── */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:1.2rem 4rem;background:rgba(5,13,26,.7);backdrop-filter:blur(20px);border-bottom:1px solid rgba(0,200,255,.08);transition:all .3s}
+.nav-logo{display:flex;align-items:center;gap:.75rem;font-family:var(--heading-font);font-size:1.3rem;font-weight:700;color:var(--text)}
+.nav-logo span{color:var(--cyan)}
+.nav-logo-icon{width:36px;height:36px;background:linear-gradient(135deg,var(--cyan),var(--violet));border-radius:10px;display:flex;align-items:center;justify-content:center}
+.nav-badge{font-family:var(--body-font);font-size:.7rem;font-weight:500;color:var(--text-muted);border:1px solid var(--glass-border);padding:.2rem .6rem;border-radius:20px;letter-spacing:.05em}
+.nav-links{display:flex;gap:2rem;list-style:none}
+.nav-links a{color:var(--text-muted);text-decoration:none;font-size:.875rem;font-weight:500;transition:color .2s}
+.nav-links a:hover{color:var(--cyan)}
+.nav-cta{background:linear-gradient(135deg,var(--cyan),var(--violet));color:#fff;border:none;padding:.6rem 1.5rem;border-radius:8px;font-weight:600;font-size:.875rem;cursor:pointer;font-family:var(--body-font);text-decoration:none;transition:opacity .2s,transform .2s}
+.nav-cta:hover{opacity:.85;transform:translateY(-1px)}
+
+/* ── HERO ── */
+#hero{position:relative;min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:8rem 2rem 4rem;z-index:1}
+.hero-glow{position:absolute;inset:0;background:radial-gradient(ellipse 70% 70% at 50% 40%,rgba(0,200,255,.07) 0%,transparent 70%);pointer-events:none}
+.hero-badge{display:inline-flex;align-items:center;gap:.5rem;background:rgba(0,200,255,.08);border:1px solid rgba(0,200,255,.2);color:var(--cyan);font-size:.8rem;font-weight:600;padding:.4rem 1rem;border-radius:20px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2rem}
+.hero-badge svg{width:14px;height:14px}
+h1.hero-title{font-family:var(--heading-font);font-size:clamp(3rem,8vw,6.5rem);font-weight:900;line-height:1.05;margin-bottom:1.5rem;letter-spacing:-.02em}
+.hero-title .line1{display:block;background:linear-gradient(135deg,var(--text) 0%,var(--cyan2) 50%,var(--violet2) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-title .line2{display:block;color:var(--text-muted);font-weight:300;font-size:.55em;margin-top:.3rem;letter-spacing:.02em;-webkit-text-fill-color:var(--text-muted)}
+p.hero-sub{max-width:640px;margin:0 auto 3rem;color:var(--text-muted);font-size:1.1rem;line-height:1.75}
+.hero-sub strong{color:var(--text)}
+.portal-row{display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:4rem}
+.portal-card{text-decoration:none;display:flex;flex-direction:column;align-items:center;gap:1rem;background:var(--glass);border:1px solid var(--glass-border);backdrop-filter:blur(16px);border-radius:20px;padding:2.5rem 3.5rem;cursor:pointer;transition:transform .3s,box-shadow .3s,border-color .3s;position:relative;overflow:hidden}
+.portal-card::before{content:'';position:absolute;inset:0;border-radius:20px;opacity:0;transition:opacity .3s}
+.portal-card.nurse::before{background:radial-gradient(ellipse at 50% 0%,rgba(0,200,255,.12),transparent 70%)}
+.portal-card.patient::before{background:radial-gradient(ellipse at 50% 0%,rgba(124,111,224,.12),transparent 70%)}
+.portal-card:hover{transform:translateY(-8px);box-shadow:0 32px 64px rgba(0,0,0,.4)}
+.portal-card.nurse:hover{border-color:var(--cyan);box-shadow:0 32px 64px rgba(0,200,255,.15)}
+.portal-card.patient:hover{border-color:var(--violet);box-shadow:0 32px 64px rgba(124,111,224,.15)}
+.portal-card:hover::before{opacity:1}
+.portal-icon{width:72px;height:72px;border-radius:18px;display:flex;align-items:center;justify-content:center}
+.portal-card.nurse .portal-icon{background:linear-gradient(135deg,rgba(0,200,255,.2),rgba(0,200,255,.05));border:1px solid rgba(0,200,255,.3)}
+.portal-card.patient .portal-icon{background:linear-gradient(135deg,rgba(124,111,224,.2),rgba(124,111,224,.05));border:1px solid rgba(124,111,224,.3)}
+.portal-icon svg{width:36px;height:36px}
+.portal-card.nurse .portal-icon svg{stroke:var(--cyan)}
+.portal-card.patient .portal-icon svg{stroke:var(--violet2)}
+.portal-label{font-family:var(--heading-font);font-size:1.3rem;font-weight:700;color:var(--text)}
+.portal-desc{font-size:.8rem;color:var(--text-muted);text-align:center;max-width:160px}
+.portal-arrow{display:flex;align-items:center;gap:.4rem;font-size:.8rem;font-weight:600;margin-top:.5rem;transition:gap .2s}
+.portal-card.nurse .portal-arrow{color:var(--cyan)}
+.portal-card.patient .portal-arrow{color:var(--violet2)}
+.portal-card:hover .portal-arrow{gap:.7rem}
+.hero-author{display:flex;align-items:center;gap:.75rem;background:var(--glass);border:1px solid var(--glass-border);padding:.75rem 1.5rem;border-radius:12px;font-size:.82rem;color:var(--text-muted)}
+.author-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--violet));display:flex;align-items:center;justify-content:center;font-family:var(--heading-font);font-weight:700;color:#fff;font-size:.9rem;flex-shrink:0}
+.hero-author strong{color:var(--text)}
+
+/* ── SECTION SHARED ── */
+section{position:relative;z-index:1;padding:6rem 2rem}
+.section-tag{display:inline-flex;align-items:center;gap:.5rem;font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--cyan);margin-bottom:1rem}
+.section-tag::before{content:'';width:20px;height:2px;background:var(--cyan)}
+h2.section-title{font-family:var(--heading-font);font-size:clamp(2rem,4vw,3rem);font-weight:800;line-height:1.15;margin-bottom:1rem;letter-spacing:-.02em}
+h2.section-title span{background:linear-gradient(135deg,var(--cyan),var(--violet2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+p.section-sub{color:var(--text-muted);font-size:1rem;max-width:580px;line-height:1.7}
+.container{max-width:1200px;margin:0 auto}
+.text-center{text-align:center}
+.text-center .section-tag{justify-content:center}
+.text-center .section-sub{margin:0 auto}
+
+/* ── DIVIDER ── */
+.divider{height:1px;background:linear-gradient(90deg,transparent,rgba(0,200,255,.2),transparent);margin:0 4rem}
+
+/* ── ABOUT ── */
+#about{padding:7rem 2rem}
+.about-grid{display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:center;max-width:1200px;margin:0 auto}
+.about-img{border-radius:24px;overflow:hidden;position:relative;aspect-ratio:4/3}
+.about-img img{width:100%;height:100%;object-fit:cover;display:block}
+.about-img-overlay{position:absolute;inset:0;background:linear-gradient(135deg,rgba(0,200,255,.12),rgba(124,111,224,.12));mix-blend-mode:color}
+.about-img-frame{position:absolute;inset:0;border-radius:24px;border:1px solid rgba(0,200,255,.2)}
+.about-stat-row{display:flex;gap:2rem;margin-top:2.5rem;flex-wrap:wrap}
+.stat{display:flex;flex-direction:column;gap:.25rem}
+.stat-num{font-family:var(--heading-font);font-size:2.2rem;font-weight:800;background:linear-gradient(135deg,var(--cyan),var(--violet2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.stat-label{font-size:.78rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em}
+
+/* ── FEATURES ── */
+#features{background:var(--bg2)}
+.features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;margin-top:3.5rem}
+.feat-card{background:var(--glass);border:1px solid var(--glass-border);border-radius:20px;overflow:hidden;transition:transform .3s,border-color .3s,box-shadow .3s}
+.feat-card:hover{transform:translateY(-6px);border-color:rgba(0,200,255,.3);box-shadow:0 24px 48px rgba(0,0,0,.3)}
+.feat-img{width:100%;height:180px;object-fit:cover;display:block;filter:saturate(1.2)}
+.feat-body{padding:1.5rem}
+.feat-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:1rem}
+.feat-icon.teal{background:rgba(0,200,255,.12);border:1px solid rgba(0,200,255,.2)}
+.feat-icon.violet{background:rgba(124,111,224,.12);border:1px solid rgba(124,111,224,.2)}
+.feat-icon.red{background:rgba(255,64,96,.12);border:1px solid rgba(255,64,96,.2)}
+.feat-icon.green{background:rgba(0,220,150,.12);border:1px solid rgba(0,220,150,.2)}
+.feat-icon svg{width:22px;height:22px}
+.feat-icon.teal svg{stroke:var(--cyan)}
+.feat-icon.violet svg{stroke:var(--violet2)}
+.feat-icon.red svg{stroke:var(--red)}
+.feat-icon.green svg{stroke:#00dc96}
+.feat-card h3{font-family:var(--heading-font);font-size:1.1rem;font-weight:700;margin-bottom:.6rem}
+.feat-card p{font-size:.85rem;color:var(--text-muted);line-height:1.65}
+.feat-tag{display:inline-block;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;padding:.2rem .6rem;border-radius:6px;margin-bottom:.75rem}
+.feat-tag.teal{background:rgba(0,200,255,.1);color:var(--cyan)}
+.feat-tag.violet{background:rgba(124,111,224,.1);color:var(--violet2)}
+.feat-tag.red{background:rgba(255,64,96,.1);color:var(--red)}
+.feat-tag.green{background:rgba(0,220,150,.1);color:#00dc96}
+
+/* ── HOW IT WORKS ── */
+#how{padding:7rem 2rem}
+.steps{display:flex;flex-direction:column;gap:0;margin-top:4rem;max-width:800px;margin-left:auto;margin-right:auto;position:relative}
+.steps::before{content:'';position:absolute;left:28px;top:0;bottom:0;width:2px;background:linear-gradient(180deg,var(--cyan),var(--violet),transparent)}
+.step{display:flex;gap:2rem;align-items:flex-start;padding:2rem 0;opacity:0;transform:translateX(-30px);transition:opacity .6s,transform .6s}
+.step.visible{opacity:1;transform:translateX(0)}
+.step-num{flex-shrink:0;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--violet));display:flex;align-items:center;justify-content:center;font-family:var(--heading-font);font-size:1.2rem;font-weight:800;color:#fff;box-shadow:0 0 24px rgba(0,200,255,.3);z-index:1;position:relative}
+.step-content h3{font-family:var(--heading-font);font-size:1.15rem;font-weight:700;margin-bottom:.4rem;margin-top:.8rem}
+.step-content p{font-size:.875rem;color:var(--text-muted);line-height:1.7}
+.step-content .pill{display:inline-block;font-size:.7rem;font-weight:600;background:rgba(0,200,255,.1);color:var(--cyan);border:1px solid rgba(0,200,255,.2);padding:.15rem .6rem;border-radius:20px;margin-top:.6rem}
+
+/* ── TECH ── */
+#tech{background:var(--bg3);padding:5rem 2rem}
+.tech-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:1rem;margin-top:3rem}
+.tech-badge{display:flex;align-items:center;gap:.6rem;background:var(--glass);border:1px solid var(--glass-border);padding:.75rem 1.25rem;border-radius:12px;font-size:.85rem;font-weight:600;color:var(--text);transition:border-color .2s,box-shadow .2s}
+.tech-badge:hover{border-color:var(--cyan);box-shadow:0 0 20px rgba(0,200,255,.1)}
+.tech-badge svg{width:20px;height:20px;flex-shrink:0}
+
+/* ── PORTAL CTA ── */
+#portal{padding:7rem 2rem;text-align:center}
+.portal-cta-wrap{max-width:900px;margin:0 auto}
+.portal-cards-big{display:grid;grid-template-columns:1fr 1fr;gap:2rem;margin-top:3.5rem}
+.portal-big{text-decoration:none;display:flex;flex-direction:column;align-items:flex-start;gap:1rem;border-radius:24px;padding:3rem;border:1px solid;position:relative;overflow:hidden;transition:transform .3s,box-shadow .3s}
+.portal-big.nurse{background:linear-gradient(135deg,rgba(0,200,255,.06),rgba(0,200,255,.02));border-color:rgba(0,200,255,.2)}
+.portal-big.patient{background:linear-gradient(135deg,rgba(124,111,224,.06),rgba(124,111,224,.02));border-color:rgba(124,111,224,.2)}
+.portal-big:hover{transform:translateY(-8px)}
+.portal-big.nurse:hover{box-shadow:0 40px 80px rgba(0,200,255,.12)}
+.portal-big.patient:hover{box-shadow:0 40px 80px rgba(124,111,224,.12)}
+.portal-big-icon{width:60px;height:60px;border-radius:16px;display:flex;align-items:center;justify-content:center}
+.portal-big.nurse .portal-big-icon{background:rgba(0,200,255,.12);border:1px solid rgba(0,200,255,.25)}
+.portal-big.patient .portal-big-icon{background:rgba(124,111,224,.12);border:1px solid rgba(124,111,224,.25)}
+.portal-big-icon svg{width:28px;height:28px}
+.portal-big.nurse .portal-big-icon svg{stroke:var(--cyan)}
+.portal-big.patient .portal-big-icon svg{stroke:var(--violet2)}
+.portal-big h3{font-family:var(--heading-font);font-size:1.5rem;font-weight:800;color:var(--text)}
+.portal-big p{font-size:.9rem;color:var(--text-muted);line-height:1.65;text-align:left}
+.portal-big-btn{margin-top:.5rem;display:inline-flex;align-items:center;gap:.5rem;font-size:.875rem;font-weight:700;padding:.65rem 1.4rem;border-radius:10px;border:none;cursor:pointer;font-family:var(--body-font);text-decoration:none;transition:opacity .2s,transform .2s}
+.portal-big-btn:hover{opacity:.85;transform:translateX(3px)}
+.portal-big.nurse .portal-big-btn{background:linear-gradient(135deg,var(--cyan),#008fb5);color:#020d1a}
+.portal-big.patient .portal-big-btn{background:linear-gradient(135deg,var(--violet2),var(--violet));color:#fff}
+.portal-big-btn svg{width:16px;height:16px;stroke:currentColor}
+
+/* ── FOOTER ── */
+footer{background:var(--bg2);border-top:1px solid var(--glass-border);padding:3rem 4rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:gap;gap:2rem;position:relative;z-index:1}
+.footer-brand{display:flex;flex-direction:column;gap:.3rem}
+.footer-logo{font-family:var(--heading-font);font-size:1.1rem;font-weight:700}
+.footer-logo span{color:var(--cyan)}
+.footer-meta{font-size:.75rem;color:var(--text-muted);line-height:1.8}
+.footer-meta strong{color:var(--text);font-weight:600}
+.footer-tags{display:flex;flex-wrap:wrap;gap:.5rem}
+.footer-tag{font-size:.7rem;font-weight:600;background:var(--glass);border:1px solid var(--glass-border);padding:.25rem .7rem;border-radius:6px;color:var(--text-muted)}
+.footer-copy{font-size:.75rem;color:var(--text-muted);text-align:right}
+
+/* ── SCROLL REVEAL ── */
+.reveal{opacity:0;transform:translateY(30px);transition:opacity .7s ease,transform .7s ease}
+.reveal.visible{opacity:1;transform:translateY(0)}
+
+/* ── RESPONSIVE ── */
+@media(max-width:900px){
+  nav{padding:1rem 1.5rem}
+  .nav-links{display:none}
+  .about-grid{grid-template-columns:1fr}
+  .portal-cards-big{grid-template-columns:1fr}
+  footer{flex-direction:column;padding:2rem;text-align:center}
+  .footer-copy{text-align:center}
+}
+@media(max-width:600px){
+  .portal-row{flex-direction:column;align-items:center}
+  .portal-big{padding:2rem}
+}
+</style>
+</head>
+<body>
+
+<canvas id="particle-canvas"></canvas>
+
+<!-- NAV -->
+<nav id="navbar">
+  <div class="nav-logo">
+    <div class="nav-logo-icon">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+    </div>
+    Silent<span>Care</span> Pro
+  </div>
+  <ul class="nav-links">
+    <li><a href="#about">About</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#how">How It Works</a></li>
+    <li><a href="#tech">Tech</a></li>
+  </ul>
+  <div style="display:flex;align-items:center;gap:1rem">
+    <span class="nav-badge">SE-506 · Big Data Analysis</span>
+    <a href="http://localhost:3000" class="nav-cta">Launch App</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-glow"></div>
+  <div>
+    <div class="hero-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+      Multi-Modal AI · Real-Time Patient Monitoring
+    </div>
+    <h1 class="hero-title">
+      <span class="line1">SilentCare Pro</span>
+      <span class="line2">Empowering the Voiceless through AI</span>
+    </h1>
+    <p class="hero-sub">
+      A clinical-grade platform that bridges the communication gap for <strong>non-verbal, paralyzed, and high-distress patients</strong> — using Computer Vision, Gesture Recognition, and Generative AI to translate body language into voice.
+    </p>
+    <div class="portal-row">
+      <a href="http://localhost:3000" class="portal-card nurse" id="nurse-portal">
+        <div class="portal-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            <path d="M16 3h2v4M18 5h-2" stroke-width="2"/>
+          </svg>
+        </div>
+        <div class="portal-label">Nurse Portal</div>
+        <div class="portal-desc">Command Center, ward map & real-time alerts</div>
+        <div class="portal-arrow">
+          Enter Station
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+      </a>
+      <a href="http://localhost:3000" class="portal-card patient" id="patient-portal">
+        <div class="portal-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            <path d="M12 14v4M10 16h4" stroke-width="2"/>
+          </svg>
+        </div>
+        <div class="portal-label">Patient Portal</div>
+        <div class="portal-desc">Gesture, gaze & voice communication interface</div>
+        <div class="portal-arrow">
+          Enter Dashboard
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+      </a>
+    </div>
+    <div style="display:flex;justify-content:center">
+      <div class="hero-author">
+        <div class="author-avatar">FM</div>
+        <div>
+          <div><strong>Fiza Mushaim</strong> &nbsp;·&nbsp; AG: 2023-ag-9944</div>
+          <div>Big Data Analysis (SE-506) &nbsp;·&nbsp; Sir Hassan Tariq</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ABOUT -->
+<section id="about">
+  <div class="about-grid">
+    <div class="about-img reveal">
+      <img src="C:/Users/hassa/.gemini/antigravity/brain/1428fa85-a4be-4b2b-99d9-bf4e1dcbb765/hero_medical_ai_1774874825877.png" alt="AI-powered patient monitoring visualization"/>
+      <div class="about-img-overlay"></div>
+      <div class="about-img-frame"></div>
+    </div>
+    <div class="reveal">
+      <div class="section-tag">About the Platform</div>
+      <h2 class="section-title">Built for the <span>voiceless</span> patient</h2>
+      <p class="section-sub">
+        In critical care wards, patients who are intubated, paralyzed, or in extreme distress are cut off from communication. SilentCare Pro restores that voice — using nothing but a standard webcam and the power of AI.
+      </p>
+      <p class="section-sub" style="margin-top:1rem">
+        By tracking <strong style="color:var(--text)">478 facial landmarks</strong> and <strong style="color:var(--text)">21 hand joints</strong> in real-time, the system converts gestures, gaze, and distress signals into spoken words — instantly alerting nursing staff.
+      </p>
+      <div class="about-stat-row">
+        <div class="stat"><span class="stat-num">60fps</span><span class="stat-label">Real-time capture</span></div>
+        <div class="stat"><span class="stat-num">478</span><span class="stat-label">Face landmarks</span></div>
+        <div class="stat"><span class="stat-num">&lt;100ms</span><span class="stat-label">Alert latency</span></div>
+        <div class="stat"><span class="stat-num">2</span><span class="stat-label">Languages (EN/UR)</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="container">
+    <div class="text-center reveal">
+      <div class="section-tag">Core Capabilities</div>
+      <h2 class="section-title">Four pillars of <span>silent communication</span></h2>
+      <p class="section-sub">Every feature is purpose-built for the clinical environment — delivering maximum expressiveness with zero physical ability required.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feat-card reveal">
+        <img class="feat-img" src="C:/Users/hassa/.gemini/antigravity/brain/1428fa85-a4be-4b2b-99d9-bf4e1dcbb765/feature_gesture_1774875166700.png" alt="Hand gesture landmark tracking"/>
+        <div class="feat-body">
+          <div class="feat-tag teal">Gesture Recognition</div>
+          <div class="feat-icon teal">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+          </div>
+          <h3>ASL &amp; Gesture-to-Speech</h3>
+          <p>21-point hand landmark tracking translates American Sign Language and custom gestures into context-aware sentences via Google Gemini 1.5 Flash — spoken aloud in English or Urdu.</p>
+        </div>
+      </div>
+      <div class="feat-card reveal">
+        <img class="feat-img" src="C:/Users/hassa/.gemini/antigravity/brain/1428fa85-a4be-4b2b-99d9-bf4e1dcbb765/feature_gaze_1774875262615.png" alt="Eye iris tracking visualization"/>
+        <div class="feat-body">
+          <div class="feat-tag violet">Gaze Interaction</div>
+          <div class="feat-icon violet">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+          <h3>Gaze-Dwell Interaction</h3>
+          <p>Designed for quadriplegic patients with zero limb movement. By focusing on an on-screen icon for 2 seconds, patients can request Water, Food, Help, or Pain relief — no hands required.</p>
+        </div>
+      </div>
+      <div class="feat-card reveal">
+        <img class="feat-img" src="C:/Users/hassa/.gemini/antigravity/brain/1428fa85-a4be-4b2b-99d9-bf4e1dcbb765/feature_emotion_1774875614197.png" alt="Facial emotion AI tracking mesh"/>
+        <div class="feat-body">
+          <div class="feat-tag red">Emotional AI</div>
+          <div class="feat-icon red">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 15s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          </div>
+          <h3>Emotional AI &amp; Distress Monitoring</h3>
+          <p>478 facial blendshapes monitor for pain, grimacing, and SOS blink patterns (3 rapid blinks). Critical distress auto-bypasses manual inputs, sending an immediate alert to the nursing station.</p>
+        </div>
+      </div>
+      <div class="feat-card reveal">
+        <img class="feat-img" src="C:/Users/hassa/.gemini/antigravity/brain/1428fa85-a4be-4b2b-99d9-bf4e1dcbb765/feature_nurse_1774875655807.png" alt="Nurse command center dashboard"/>
+        <div class="feat-body">
+          <div class="feat-tag green">Nurse Command Center</div>
+          <div class="feat-icon green">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M17 8l-5 5-3-3"/></svg>
+          </div>
+          <h3>Live Ward Command Center</h3>
+          <p>A real-time room status map with urgency strobes, WebSocket-powered patient alerts, and a full patient communication log — giving nurses complete situational awareness across the entire ward.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- HOW IT WORKS -->
+<section id="how">
+  <div class="container text-center reveal">
+    <div class="section-tag">System Architecture</div>
+    <h2 class="section-title">From camera to <span>care action</span></h2>
+    <p class="section-sub">A 5-stage real-time pipeline converts raw webcam frames into meaningful clinical actions in under 100ms.</p>
+  </div>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">01</div>
+      <div class="step-content">
+        <h3>Data Acquisition</h3>
+        <p>The system captures a live webcam feed at 60 frames per second from any standard hospital-grade camera — no special hardware required.</p>
+        <span class="pill">60 FPS · WebRTC</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">02</div>
+      <div class="step-content">
+        <h3>Feature Extraction</h3>
+        <p>MediaPipe processes each frame to extract 478 facial landmarks and 21 hand joint coordinates, capturing micro-expressions and fine motor signals.</p>
+        <span class="pill">MediaPipe · On-device inference</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">03</div>
+      <div class="step-content">
+        <h3>AI Intent Classification</h3>
+        <p>Landmark sequences are sent to Gemini 1.5 Flash, which interprets gesture patterns and returns a natural-language request string — politely phrased and clinically appropriate.</p>
+        <span class="pill">Google Gemini 1.5 Flash · LLM inference</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">04</div>
+      <div class="step-content">
+        <h3>Bilingual Voice Synthesis</h3>
+        <p>The interpreted request is immediately spoken aloud in English or Urdu using the Web Speech API with natural regional accent tuning.</p>
+        <span class="pill">Web Speech API · EN &amp; UR</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">05</div>
+      <div class="step-content">
+        <h3>Real-Time Nurse Alert</h3>
+        <p>A WebSocket event is broadcast to the Nurse Command Center, triggering a color-coded urgency strobe on the ward live map with the patient's room and request details.</p>
+        <span class="pill">Socket.IO · &lt;100ms latency</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- TECH -->
+<section id="tech">
+  <div class="container text-center reveal">
+    <div class="section-tag">Technology Stack</div>
+    <h2 class="section-title">Built on <span>world-class infrastructure</span></h2>
+    <p class="section-sub">Every layer of the stack is chosen for real-time performance, clinical reliability and zero-dependency deployability.</p>
+    <div class="tech-grid">
+      <div class="tech-badge">
+        <svg viewBox="0 0 24 24" fill="#61DAFB" stroke="none"><circle cx="12" cy="12" r="2.05"/><path fill="none" stroke="#61DAFB" stroke-width="1.3" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+        React 18 + Vite
+      </div>
+      <div class="tech-badge">
+        <svg viewBox="0 0 24 24" fill="#007ACC" stroke="none"><path d="M1.5 0h21l-1.91 21.563L11.977 24l-8.565-2.438L1.5 0zm17.09 4.413L5.41 4.41l.213 2.622 10.125.002-.255 2.716h-6.64l.24 2.573h6.182l-.366 3.523-2.91.804-2.956-.81-.188-2.11h-2.61l.29 3.855L12 19.288l5.373-1.53L18.59 4.414v-.001z"/></svg>
+        TypeScript
+      </div>
+      <div class="tech-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#00B0FF" stroke-width="1.8"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        MediaPipe
+      </div>
+      <div class="tech-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#8E75B2" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+        Google Gemini 1.5 Flash
+      </div>
+      <div class="tech-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#00dc96" stroke-width="1.8"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+        Socket.IO · Node.js
+      </div>
+      <div class="tech-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="1.8"><path d="M4 6h16M4 10h16M4 14h8M4 18h6"/></svg>
+        Tailwind CSS · Glassmorphism
+      </div>
+      <div class="tech-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#a3a3a3" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        SQLite · Session Storage
+      </div>
+      <div class="tech-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="1.8"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        Web Speech API · TTS
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PORTAL CTA -->
+<section id="portal">
+  <div class="portal-cta-wrap">
+    <div class="reveal">
+      <div class="section-tag" style="justify-content:center">Select Your Role</div>
+      <h2 class="section-title">Choose your <span>portal</span></h2>
+      <p class="section-sub">Both portals connect to the same real-time system. Nurses monitor, patients communicate.</p>
+    </div>
+    <div class="portal-cards-big reveal">
+      <a href="http://localhost:3000" class="portal-big nurse" id="cta-nurse">
+        <div class="portal-big-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <path d="M8 21h8M12 17v4"/>
+            <path d="M9 9h6M12 7v4" stroke-width="2"/>
+          </svg>
+        </div>
+        <h3>Nurse Command Center</h3>
+        <p>Access the real-time ward map, receive patient distress alerts with urgency strobes, review patient communication logs, and monitor all active rooms from a single dashboard.</p>
+        <span class="portal-big-btn">
+          Enter as Nurse
+          <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </span>
+      </a>
+      <a href="http://localhost:3000" class="portal-big patient" id="cta-patient">
+        <div class="portal-big-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+            <path d="M12 14v3M10.5 16.5h3" stroke-width="2"/>
+          </svg>
+        </div>
+        <h3>Patient Dashboard</h3>
+        <p>Communicate using hand gestures, eye gaze, or simple blink patterns. Your requests are converted to speech and broadcast to nursing staff — without saying a single word.</p>
+        <span class="portal-big-btn">
+          Enter as Patient
+          <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-brand">
+    <div class="footer-logo">Silent<span>Care</span> Pro</div>
+    <div class="footer-meta">
+      Developed by <strong>Fiza Mushaim</strong> &nbsp;·&nbsp; AG: <strong>2023-ag-9944</strong><br/>
+      Subject: <strong>Big Data Analysis (SE-506)</strong> &nbsp;·&nbsp; Supervisor: <strong>Sir Hassan Tariq</strong>
+    </div>
+  </div>
+  <div class="footer-tags">
+    <span class="footer-tag">React + Vite</span>
+    <span class="footer-tag">MediaPipe</span>
+    <span class="footer-tag">Google Gemini</span>
+    <span class="footer-tag">Socket.IO</span>
+    <span class="footer-tag">TypeScript</span>
+  </div>
+  <div class="footer-copy">
+    &copy; 2026 Fiza Mushaim. All Rights Reserved.<br/>
+    <span style="color:var(--text-muted);font-size:.7rem">University of Engineering &amp; Technology</span>
+  </div>
+</footer>
+
+<script>
+// ── PARTICLE CANVAS ──
+const canvas = document.getElementById('particle-canvas');
+const ctx = canvas.getContext('2d');
+let W, H, particles = [];
+function resize(){W=canvas.width=innerWidth;H=canvas.height=innerHeight}
+resize();window.addEventListener('resize',resize);
+class Particle{
+  constructor(){this.reset()}
+  reset(){
+    this.x=Math.random()*W;this.y=Math.random()*H;
+    this.r=Math.random()*1.2+.3;
+    this.vx=(Math.random()-.5)*.25;this.vy=(Math.random()-.5)*.25;
+    this.alpha=Math.random()*.5+.1;
+    this.color=Math.random()>.5?'0,200,255':'124,111,224';
+  }
+  update(){
+    this.x+=this.vx;this.y+=this.vy;
+    if(this.x<0||this.x>W||this.y<0||this.y>H)this.reset();
+  }
+  draw(){
+    ctx.beginPath();ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(${this.color},${this.alpha})`;ctx.fill();
+  }
+}
+for(let i=0;i<180;i++)particles.push(new Particle());
+function drawLines(){
+  for(let i=0;i<particles.length;i++){
+    for(let j=i+1;j<particles.length;j++){
+      const dx=particles[i].x-particles[j].x,dy=particles[i].y-particles[j].y;
+      const d=Math.sqrt(dx*dx+dy*dy);
+      if(d<100){
+        ctx.beginPath();ctx.moveTo(particles[i].x,particles[i].y);ctx.lineTo(particles[j].x,particles[j].y);
+        ctx.strokeStyle=`rgba(0,200,255,${.06*(1-d/100)})`;ctx.lineWidth=.5;ctx.stroke();
+      }
+    }
+  }
+}
+function animate(){
+  ctx.clearRect(0,0,W,H);
+  particles.forEach(p=>{p.update();p.draw()});
+  drawLines();requestAnimationFrame(animate);
+}
+animate();
+
+// ── SCROLL REVEAL ──
+const revealEls = document.querySelectorAll('.reveal,.step');
+const io = new IntersectionObserver((entries)=>{
+  entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('visible');io.unobserve(e.target)}});
+},{threshold:.15});
+revealEls.forEach(el=>io.observe(el));
+
+// ── NAV SCROLL SHADOW ──
+window.addEventListener('scroll',()=>{
+  const nav=document.getElementById('navbar');
+  nav.style.boxShadow=scrollY>60?'0 8px 32px rgba(0,0,0,.5)':'none';
+});
+</script>
+</body>
+</html>

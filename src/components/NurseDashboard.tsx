@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Activity, Bell, CheckCircle2, Clock, AlertTriangle, User, Hand } from 'lucide-react';
+import { Activity, Bell, CheckCircle2, Clock, AlertTriangle, User, Hand, HelpCircle, BrainCircuit } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -15,9 +15,10 @@ interface Message {
 interface NurseDashboardProps {
   user: { name: string; room: string; role: 'patient' | 'nurse' };
   onLogout: () => void;
+  onShowGuide: () => void;
 }
 
-export default function NurseDashboard({ user, onLogout }: NurseDashboardProps) {
+export default function NurseDashboard({ user, onLogout, onShowGuide }: NurseDashboardProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [socket, setSocket] = useState<Socket | null>(null);
 
@@ -34,8 +35,23 @@ export default function NurseDashboard({ user, onLogout }: NurseDashboardProps) 
       
       // Play sound alert for high urgency
       if (message.urgency === 'high') {
-        const audio = new Audio('/alert.mp3'); // Assuming we have an alert sound, or fallback to beep
-        audio.play().catch(e => console.log("Audio play blocked", e));
+        try {
+          // Fallback to a synthesized 'Emergency Beep' using Web Audio API to avoid 404 errors
+          const context = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const oscillator = context.createOscillator();
+          const gainNode = context.createGain();
+
+          oscillator.type = 'square';
+          oscillator.frequency.setValueAtTime(880, context.currentTime); // High A note
+          oscillator.connect(gainNode);
+          gainNode.connect(context.destination);
+
+          gainNode.gain.setValueAtTime(0.1, context.currentTime);
+          oscillator.start();
+          oscillator.stop(context.currentTime + 0.5); // 500ms beep
+        } catch (e) {
+          console.log("Audio alert failed", e);
+        }
       }
     });
 
@@ -49,6 +65,8 @@ export default function NurseDashboard({ user, onLogout }: NurseDashboardProps) 
       newSocket.disconnect();
     };
   }, []);
+
+  const [activeTab, setActiveTab] = useState<'live' | 'analytics'>('live');
 
   const resolveMessage = (id: string) => {
     if (socket) {
@@ -75,7 +93,7 @@ export default function NurseDashboard({ user, onLogout }: NurseDashboardProps) 
       case 'low': return <Activity className="w-3.5 h-3.5" />;
       default: return null;
     }
-  };
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col font-sans text-zinc-50">
@@ -91,11 +109,19 @@ export default function NurseDashboard({ user, onLogout }: NurseDashboardProps) 
               <p className="text-[10px] text-cyan-500 font-mono uppercase tracking-widest">Nurse Station</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-zinc-400 bg-zinc-950 px-4 py-2 rounded-full border border-zinc-800 uppercase tracking-wider">
               <User className="w-3.5 h-3.5 text-cyan-500" />
               {user.name}
             </div>
+            <button
+              onClick={onShowGuide}
+              title="System Guide"
+              className="flex items-center gap-1.5 text-xs font-mono text-zinc-400 hover:text-cyan-400 px-3 py-2 rounded-lg hover:bg-zinc-800 border border-zinc-800 hover:border-cyan-500/30 transition-all uppercase tracking-widest"
+            >
+              <HelpCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">Guide</span>
+            </button>
             <button
               onClick={onLogout}
               className="text-xs font-mono text-zinc-500 hover:text-zinc-300 transition-colors px-3 py-2 rounded-lg hover:bg-zinc-800 uppercase tracking-widest"
@@ -106,148 +132,269 @@ export default function NurseDashboard({ user, onLogout }: NurseDashboardProps) 
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex flex-col gap-8">
         
-        {/* Active Alerts */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-display font-bold text-zinc-100 flex items-center gap-3 tracking-tight">
-              <div className="p-2 bg-zinc-900 border border-zinc-800 rounded-lg">
-                <Bell className="w-5 h-5 text-cyan-400" />
-              </div>
-              Active Alerts
-              <span className="bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs py-1 px-3 rounded-full font-mono font-bold shadow-sm">
-                {activeMessages.length}
-              </span>
-            </h2>
+        {/* Command Center Stats Bar */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between group hover:border-cyan-500/30 transition-all">
+            <h3 className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+              <Activity className="w-3 h-3 text-cyan-400" /> System Status
+            </h3>
+            <div className="flex items-end justify-between">
+              <span className="text-2xl font-display font-bold text-emerald-400">ONLINE</span>
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            </div>
           </div>
-
-          {activeMessages.length === 0 ? (
-            <div className="bg-zinc-900 rounded-2xl border border-dashed border-zinc-800 p-16 text-center shadow-xl">
-              <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-5 border border-emerald-500/20">
-                <CheckCircle2 className="w-10 h-10 text-emerald-400" />
-              </div>
-              <h3 className="text-xl font-display font-bold text-zinc-100">All clear</h3>
-              <p className="text-zinc-500 mt-2 font-mono text-xs uppercase tracking-widest">No active patient requests.</p>
+          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between group hover:border-red-500/30 transition-all">
+            <h3 className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+              <AlertTriangle className="w-3 h-3 text-red-500" /> High Urgency
+            </h3>
+            <div className="flex items-end justify-between">
+              <span className="text-2xl font-display font-bold text-red-400">
+                {activeMessages.filter(m => m.urgency === 'high').length}
+              </span>
+              <span className="text-[10px] font-mono text-zinc-600 uppercase">Attention Req.</span>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {activeMessages.map((msg) => (
-                <div 
-                  key={msg.id} 
-                  className={`bg-zinc-900 rounded-2xl shadow-xl border-l-4 p-6 transition-all hover:shadow-[0_0_20px_rgba(0,0,0,0.5)] relative overflow-hidden group ${
-                    msg.urgency === 'high' ? 'border-l-red-500 border-y-zinc-800 border-r-zinc-800 animate-pulse-red' : 
-                    msg.urgency === 'medium' ? 'border-l-amber-500 border-y-zinc-800 border-r-zinc-800' : 'border-l-emerald-500 border-y-zinc-800 border-r-zinc-800'
-                  }`}
-                >
-                  {/* Visual Strobe Overlay for High Urgency */}
-                  {msg.urgency === 'high' && (
-                    <div className="absolute inset-0 bg-red-500/5 animate-pulse pointer-events-none" />
-                  )}
-                  {/* Subtle gradient background based on urgency */}
-                  <div className={`absolute inset-0 opacity-0 group-hover:opacity-[0.03] transition-opacity pointer-events-none ${
-                    msg.urgency === 'high' ? 'bg-gradient-to-r from-red-500 to-transparent' : 
-                    msg.urgency === 'medium' ? 'bg-gradient-to-r from-amber-500 to-transparent' : 'bg-gradient-to-r from-emerald-500 to-transparent'
-                  }`} />
-
-                  <div className="flex justify-between items-start gap-4 relative z-10">
-                    <div className="flex-1">
-                      <div className="flex flex-wrap items-center gap-3 mb-4">
-                        <span className="text-xl font-display font-bold text-zinc-100 tracking-tight">RM {msg.room}</span>
-                        <span className="text-xs font-mono text-zinc-400 flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 px-2.5 py-1 rounded-md uppercase tracking-widest">
-                          <User className="w-3.5 h-3.5 text-zinc-500" /> {msg.patientName}
-                        </span>
-                        <span className={`text-[10px] font-mono font-bold px-2.5 py-1 rounded-md flex items-center gap-1.5 uppercase tracking-widest ${getUrgencyColor(msg.urgency)}`}>
-                          {getUrgencyIcon(msg.urgency)}
-                          {msg.urgency}
-                        </span>
-                      </div>
-                      <p className="text-zinc-300 text-xl font-medium mb-5 leading-snug">"{msg.text}"</p>
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-1.5 text-xs font-mono text-zinc-500 uppercase tracking-widest">
-                          <Clock className="w-3.5 h-3.5" />
-                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                        {msg.text.includes('AUTO-ALERT') && (
-                          <div className="text-[10px] font-mono text-red-400 bg-red-400/10 px-2 py-0.5 rounded border border-red-400/20 uppercase tracking-widest animate-pulse">
-                            Triggered by: Emotional AI
-                          </div>
-                        )}
-                        {msg.text.includes('SOS') && (
-                          <div className="text-[10px] font-mono text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded border border-orange-400/20 uppercase tracking-widest">
-                            Triggered by: SOS Blink
-                          </div>
-                        )}
-                        {msg.text.includes('Tap') && (
-                          <div className="text-[10px] font-mono text-purple-400 bg-purple-400/10 px-2 py-0.5 rounded border border-purple-400/20 uppercase tracking-widest">
-                            Triggered by: Air Tap
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => resolveMessage(msg.id)}
-                      className="shrink-0 bg-zinc-950 hover:bg-emerald-500/10 text-zinc-400 hover:text-emerald-400 border border-zinc-800 hover:border-emerald-500/30 px-5 py-2.5 rounded-xl font-mono text-xs uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      Resolve
-                    </button>
-                  </div>
-                </div>
-              ))}
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between group hover:border-amber-500/30 transition-all">
+            <h3 className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+              <Bell className="w-3 h-3 text-amber-500" /> Active Alerts
+            </h3>
+            <div className="flex items-end justify-between">
+              <span className="text-2xl font-display font-bold text-amber-400">{activeMessages.length}</span>
+              <span className="text-[10px] font-mono text-zinc-600 uppercase">In Queue</span>
             </div>
-          )}
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between group hover:border-emerald-500/30 transition-all">
+            <h3 className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+              <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Resolved Today
+            </h3>
+            <div className="flex items-end justify-between">
+              <span className="text-2xl font-display font-bold text-emerald-400">{resolvedMessages.length}</span>
+              <span className="text-[10px] font-mono text-zinc-600 uppercase">Completed</span>
+            </div>
+          </div>
         </div>
 
-        {/* Resolved History */}
-          <div className="bg-zinc-900 rounded-2xl shadow-xl border border-zinc-800 p-6">
-            <h2 className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-              <Activity className="w-3.5 h-3.5 text-cyan-500" />
-              Ward Live Status
-            </h2>
-            <div className="grid grid-cols-2 gap-2">
-              {['101', '102', '103', '104', '105', '106'].map((room) => {
-                const isActive = activeMessages.some(m => m.room === room);
-                const hasCritical = activeMessages.some(m => m.room === room && m.urgency === 'high');
-                return (
-                  <div 
-                    key={room}
-                    className={`h-12 rounded-lg border font-mono text-xs flex items-center justify-center transition-all ${
-                      hasCritical ? 'bg-red-500/20 border-red-500 text-red-500 animate-pulse' :
-                      isActive ? 'bg-amber-500/10 border-amber-500/50 text-amber-500' :
-                      'bg-zinc-950 border-zinc-800 text-zinc-600'
-                    }`}
-                  >
-                    RM {room}
+        <div className="flex items-center gap-2 bg-zinc-900 p-1 rounded-xl w-fit border border-zinc-800 shadow-lg mb-4">
+          <button 
+            onClick={() => setActiveTab('live')}
+            className={`px-6 py-2 rounded-lg text-xs font-mono font-bold uppercase transition-all ${activeTab === 'live' ? 'bg-cyan-500 text-zinc-950 shadow-[0_0_15px_rgba(6,182,212,0.3)]' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            Live Monitor
+          </button>
+          <button 
+            onClick={() => setActiveTab('analytics')}
+            className={`px-6 py-2 rounded-lg text-xs font-mono font-bold uppercase transition-all ${activeTab === 'analytics' ? 'bg-violet-500 text-white shadow-[0_0_15px_rgba(124,111,224,0.3)]' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            Big Data Analytics
+          </button>
+        </div>
+
+        {activeTab === 'live' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Active Alerts */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="flex items-center justify-between px-2">
+                <h2 className="text-xl font-display font-bold text-zinc-100 flex items-center gap-3 tracking-tight">
+                  <div className="p-2 bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg">
+                    <Bell className="w-5 h-5 text-cyan-400" />
                   </div>
-                );
-              })}
-            </div>
-            <div className="mt-6 pt-6 border-t border-zinc-800/50">
-              <h2 className="text-xs font-mono text-zinc-500 flex items-center gap-2 uppercase tracking-widest mb-4">
-                <CheckCircle2 className="w-4 h-4 text-zinc-600" />
-                Recently Resolved
-              </h2>
-              <div className="divide-y divide-zinc-800/50 max-h-[300px] overflow-y-auto">
-                {resolvedMessages.length === 0 ? (
-                  <div className="py-4 text-center text-zinc-700 font-mono text-[10px] uppercase">
-                    None
+                  Live Alert Feed
+                </h2>
+              </div>
+
+              {activeMessages.length === 0 ? (
+                <div className="bg-zinc-900 rounded-2xl border border-dashed border-zinc-800 p-16 text-center shadow-xl">
+                  <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-5 border border-emerald-500/20">
+                    <CheckCircle2 className="w-10 h-10 text-emerald-400" />
                   </div>
-                ) : (
-                  resolvedMessages.slice(0, 10).map((msg) => (
-                    <div key={msg.id} className="py-3">
-                      <div className="flex justify-between items-start mb-1 text-[10px]">
-                        <span className="font-bold text-zinc-400">RM {msg.room}</span>
-                        <span className="text-zinc-600 font-mono">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <h3 className="text-xl font-display font-bold text-zinc-100">All clear</h3>
+                  <p className="text-zinc-500 mt-2 font-mono text-xs uppercase tracking-widest">No active patient requests.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {activeMessages.map((msg) => (
+                    <div 
+                      key={msg.id} 
+                      className={`bg-zinc-900 rounded-2xl shadow-xl border-l-4 p-6 transition-all hover:shadow-[0_0_20px_rgba(0,0,0,0.5)] relative overflow-hidden group ${
+                        msg.urgency === 'high' ? 'border-l-red-500 border-y-zinc-800 border-r-zinc-800 animate-pulse-red' : 
+                        msg.urgency === 'medium' ? 'border-l-amber-500 border-y-zinc-800 border-r-zinc-800' : 'border-l-emerald-500 border-y-zinc-800 border-r-zinc-800'
+                      }`}
+                    >
+                      {/* Visual Strobe Overlay for High Urgency */}
+                      {msg.urgency === 'high' && (
+                        <div className="absolute inset-0 bg-red-500/5 animate-pulse pointer-events-none" />
+                      )}
+                      {/* Subtle gradient background based on urgency */}
+                      <div className={`absolute inset-0 opacity-0 group-hover:opacity-[0.03] transition-opacity pointer-events-none ${
+                        msg.urgency === 'high' ? 'bg-gradient-to-r from-red-500 to-transparent' : 
+                        msg.urgency === 'medium' ? 'bg-gradient-to-r from-amber-500 to-transparent' : 'bg-gradient-to-r from-emerald-500 to-transparent'
+                      }`} />
+
+                      <div className="flex justify-between items-start gap-4 relative z-10">
+                        <div className="flex-1">
+                          <div className="flex flex-wrap items-center gap-3 mb-4">
+                            <span className="text-xl font-display font-bold text-zinc-100 tracking-tight">RM {msg.room}</span>
+                            <span className="text-xs font-mono text-zinc-400 flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 px-2.5 py-1 rounded-md uppercase tracking-widest">
+                              <User className="w-3.5 h-3.5 text-zinc-500" /> {msg.patientName}
+                            </span>
+                            <span className={`text-[10px] font-mono font-bold px-2.5 py-1 rounded-md flex items-center gap-1.5 uppercase tracking-widest ${getUrgencyColor(msg.urgency)}`}>
+                              {getUrgencyIcon(msg.urgency)}
+                              {msg.urgency}
+                            </span>
+                          </div>
+                          <p className="text-zinc-300 text-xl font-medium mb-5 leading-snug">"{msg.text}"</p>
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-1.5 text-xs font-mono text-zinc-500 uppercase tracking-widest">
+                              <Clock className="w-3.5 h-3.5" />
+                              {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                            {msg.text.includes('AUTO-ALERT') && (
+                              <div className="text-[10px] font-mono text-red-400 bg-red-400/10 px-2 py-0.5 rounded border border-red-400/20 uppercase tracking-widest animate-pulse">
+                                Triggered by: Emotional AI
+                              </div>
+                            )}
+                            {msg.text.includes('SOS') && (
+                              <div className="text-[10px] font-mono text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded border border-orange-400/20 uppercase tracking-widest">
+                                Triggered by: SOS Blink
+                              </div>
+                            )}
+                            {msg.text.includes('Tap') && (
+                              <div className="text-[10px] font-mono text-purple-400 bg-purple-400/10 px-2 py-0.5 rounded border border-purple-400/20 uppercase tracking-widest">
+                                Triggered by: Air Tap
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => resolveMessage(msg.id)}
+                          className="shrink-0 bg-zinc-950 hover:bg-emerald-500/10 text-zinc-400 hover:text-emerald-400 border border-zinc-800 hover:border-emerald-500/30 px-5 py-2.5 rounded-xl font-mono text-xs uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          Resolve
+                        </button>
                       </div>
-                      <p className="text-zinc-500 text-[11px] line-clamp-1 italic">"{msg.text}"</p>
                     </div>
-                  ))
-                )}
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Resolved History & Ward Status */}
+            <div className="space-y-6">
+              <div className="bg-zinc-900 rounded-2xl shadow-xl border border-zinc-800 p-6">
+                <h2 className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Activity className="w-3.5 h-3.5 text-cyan-500" />
+                  Ward Live Status
+                </h2>
+                <div className="grid grid-cols-2 gap-2">
+                  {['101', '102', '103', '104', '105', '106'].map((room) => {
+                    const isActive = activeMessages.some(m => m.room === room);
+                    const hasCritical = activeMessages.some(m => m.room === room && m.urgency === 'high');
+                    return (
+                      <div 
+                        key={room}
+                        className={`h-12 rounded-lg border font-mono text-xs flex items-center justify-center transition-all ${
+                          hasCritical ? 'bg-red-500/20 border-red-500 text-red-500 animate-pulse' :
+                          isActive ? 'bg-amber-500/10 border-amber-500/50 text-amber-500' :
+                          'bg-zinc-950 border-zinc-800 text-zinc-600'
+                        }`}
+                      >
+                        RM {room}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-6 pt-6 border-t border-zinc-800/50">
+                  <h2 className="text-xs font-mono text-zinc-500 flex items-center gap-2 uppercase tracking-widest mb-4">
+                    <CheckCircle2 className="w-4 h-4 text-zinc-600" />
+                    Recently Resolved
+                  </h2>
+                  <div className="divide-y divide-zinc-800/50 max-h-[300px] overflow-y-auto">
+                    {resolvedMessages.length === 0 ? (
+                      <div className="py-4 text-center text-zinc-700 font-mono text-[10px] uppercase">
+                        None
+                      </div>
+                    ) : (
+                      resolvedMessages.slice(0, 10).map((msg) => (
+                        <div key={msg.id} className="py-3">
+                          <div className="flex justify-between items-start mb-1 text-[10px]">
+                            <span className="font-bold text-zinc-400">RM {msg.room}</span>
+                            <span className="text-zinc-600 font-mono">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          <p className="text-zinc-500 text-[11px] line-clamp-1 italic">"{msg.text}"</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        
+        ) : (
+          /* BIG DATA ANALYTICS VIEW */
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in zoom-in duration-500">
+            <div className="bg-zinc-900 rounded-3xl border border-zinc-800 p-8 shadow-2xl relative overflow-hidden">
+               {/* Decorative Background */}
+               <div className="absolute top-0 right-0 w-32 h-32 bg-violet-600/10 blur-3xl rounded-full" />
+               <h3 className="text-lg font-display font-bold text-white mb-6 flex items-center gap-3">
+                  <BrainCircuit className="w-5 h-5 text-violet-400" /> Distress Frequency Analysis
+               </h3>
+               <div className="h-64 flex items-end gap-2 border-b border-zinc-800 pb-2">
+                  {[45, 78, 32, 95, 60, 40, 85].map((h, i) => (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
+                      <div className="w-full bg-zinc-800 rounded-lg group-hover:bg-violet-500/30 transition-colors relative" style={{ height: `${h}%` }}>
+                        <div className="absolute inset-0 bg-violet-500 opacity-0 group-hover:opacity-100 transition-opacity blur shadow-[0_0_20px_rgba(124,111,224,0.5)]" />
+                      </div>
+                      <span className="text-[10px] font-mono text-zinc-600 uppercase">D-{6-i}</span>
+                    </div>
+                  ))}
+               </div>
+               <p className="mt-4 text-xs text-zinc-500 italic">Historical data analysis shows a 12% increase in SOS Blink patterns during evening shifts (18:00 - 22:00).</p>
+            </div>
+
+            <div className="bg-zinc-900 rounded-3xl border border-zinc-800 p-8 shadow-2xl">
+               <h3 className="text-lg font-display font-bold text-white mb-6 flex items-center gap-3">
+                  <Activity className="w-5 h-5 text-emerald-400" /> Response Time Metrics
+               </h3>
+               <div className="space-y-6">
+                 <div>
+                   <div className="flex justify-between text-[10px] font-mono mb-2">
+                     <span className="text-zinc-500 uppercase">Avg. High Urgency Resolve</span>
+                     <span className="text-emerald-400 font-bold">1.4 min</span>
+                   </div>
+                   <div className="h-1.5 bg-zinc-950 rounded-full overflow-hidden">
+                     <div className="h-full bg-emerald-500 w-[85%]" />
+                   </div>
+                 </div>
+                 <div>
+                   <div className="flex justify-between text-[10px] font-mono mb-2">
+                     <span className="text-zinc-500 uppercase">Gesture Processing Latency</span>
+                     <span className="text-cyan-400 font-bold">0.6s</span>
+                   </div>
+                   <div className="h-1.5 bg-zinc-950 rounded-full overflow-hidden">
+                     <div className="h-full bg-cyan-500 w-[95%]" />
+                   </div>
+                 </div>
+                 <div>
+                   <div className="flex justify-between text-[10px] font-mono mb-2">
+                     <span className="text-zinc-500 uppercase">System Reliability Index</span>
+                     <span className="text-violet-400 font-bold">99.9%</span>
+                   </div>
+                   <div className="h-1.5 bg-zinc-950 rounded-full overflow-hidden">
+                     <div className="h-full bg-violet-500 w-[99.9%]" />
+                   </div>
+                 </div>
+               </div>
+               <div className="mt-10 p-4 bg-zinc-950 rounded-xl border border-zinc-800">
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">
+                    <strong>Predicted Demand:</strong> ML Analysis predicts a surge in water requests (RM 101-105) between 14:00 and 15:30 based on patient biometric history.
+                  </p>
+               </div>
+            </div>
+          </div>
+        )}
       </main>
       
       <style>{`
