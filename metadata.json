@@ -1,0 +1,8 @@
+{
+  "name": "SilentCare",
+  "description": "A gesture-to-message assistant for hospital patients who cannot speak. Uses MediaPipe for hand tracking and Gemini for language reconstruction.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
