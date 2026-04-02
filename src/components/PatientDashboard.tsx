@@ -75,6 +75,7 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
   const [gazeButton, setGazeButton] = useState<string | null>(null);
   const [gazeProgress, setGazeProgress] = useState(0);
+  const [debugInfo, setDebugInfo] = useState({ face: false, hand: false, blinkScore: 0 });
   
   const gestureBufferRef = useRef<string[]>([]);
   const gazeStartTimeRef = useRef<number>(0);
@@ -82,6 +83,7 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
   const blinkCountRef = useRef<number>(0);
   const lastBlinkMsgTimeRef = useRef<number>(0);
   const handleTranslateRef = useRef<(overrideBuffer?: string[]) => void>(() => {});
+  const monitoringModeRef = useRef<'both' | 'signs' | 'eye'>(monitoringMode);
 
   useEffect(() => {
     const newSocket = io();
@@ -107,7 +109,8 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
   useEffect(() => {
     recognizerRef.current = recognizer;
     faceLandmarkerRef.current = faceLandmarker;
-  }, [recognizer, faceLandmarker]);
+    monitoringModeRef.current = monitoringMode;
+  }, [recognizer, faceLandmarker, monitoringMode]);
 
   // Initialize MediaPipe
   useEffect(() => {
@@ -127,7 +130,7 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
         const faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
-            delegate: 'GPU'
+            delegate: 'CPU'
           },
           outputFaceBlendshapes: true,
           runningMode: 'VIDEO',
@@ -199,13 +202,32 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
       let results: any = null;
       let faceResults: any = null;
 
-      // --- Selective Model Running (Based on Mode) ---
-      if (monitoringMode === 'both' || monitoringMode === 'signs') {
+      let faceDetected = false;
+      let handDetected = false;
+      let currentBlinkScore = 0;
+
+      const currentMode = monitoringModeRef.current;
+
+      if (currentMode === 'both' || currentMode === 'signs') {
         results = currentRecognizer.recognizeForVideo(video, startTimeMs);
+        if (results && results.landmarks && results.landmarks.length > 0) handDetected = true;
       }
       
-      if (monitoringMode === 'both' || monitoringMode === 'eye') {
+      if (currentMode === 'both' || currentMode === 'eye') {
         faceResults = currentFaceLandmarker.detectForVideo(video, startTimeMs);
+        if (faceResults && faceResults.faceLandmarks && faceResults.faceLandmarks.length > 0) faceDetected = true;
+        
+        if (faceResults && faceResults.faceBlendshapes && faceResults.faceBlendshapes.length > 0) {
+          const shapes = faceResults.faceBlendshapes[0].categories;
+          const bL = shapes.find(b => b.categoryName === 'eyeBlinkLeft')?.score || 0;
+          const bR = shapes.find(b => b.categoryName === 'eyeBlinkRight')?.score || 0;
+          currentBlinkScore = (bL + bR) / 2;
+        }
+      }
+      
+      // Update Debug Info (throttle for performance)
+      if (nowMs % 200 < 100) {
+        setDebugInfo({ face: faceDetected, hand: handDetected, blinkScore: currentBlinkScore });
       }
 
       let isOkGesture = false;
@@ -318,7 +340,7 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
 
             // Max Sensitivity Blink Logic (0.12 threshold)
             const avgBlink = (blinkL + blinkR) / 2;
-            if (avgBlink > 0.12) {
+            if (avgBlink > 0.5) {
               if (!isBlinking) {
                 setIsBlinking(true);
                 addLog("👁️ BLINK");
@@ -346,7 +368,7 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
               setIsBlinking(false);
               // Auto-reset if inactive for 2.5 seconds
               const timeSinceBlink = Date.now() - lastBlinkMsgTimeRef.current;
-              if (timeSinceBlink > 2500 && blinkCountRef.current > 0) {
+              if (timeSinceBlink > 1500 && blinkCountRef.current > 0) {
                 blinkCountRef.current = 0;
                 setBlinkCount(0);
               }
@@ -720,6 +742,32 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
                           </span>
                         ) : 'STANDBY'}
                       </span>
+                    </div>
+                  </div>
+
+                  {/* --- LIVE DEBUG HUD --- */}
+                  <div className="absolute top-6 right-6 flex flex-col gap-2 z-30 pointer-events-none">
+                    <div className="bg-black/80 backdrop-blur-md px-4 py-3 rounded-2xl border border-white/10 shadow-2xl flex flex-col gap-2 min-w-[140px] animate-in fade-in slide-in-from-right-4 duration-500">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-[9px] font-mono text-white/40 uppercase tracking-widest">Face AI</span>
+                        <div className={`w-2 h-2 rounded-full ${debugInfo.face ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-red-500'}`} />
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-[9px] font-mono text-white/40 uppercase tracking-widest">Hand AI</span>
+                        <div className={`w-2 h-2 rounded-full ${debugInfo.hand ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-red-500'}`} />
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-white/5">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-[8px] font-mono text-white/30 uppercase">Blink Intensity</span>
+                          <span className="text-[10px] font-mono font-bold text-cyan-400">{debugInfo.blinkScore.toFixed(2)}</span>
+                        </div>
+                        <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                          <div className="h-full bg-cyan-400 transition-all duration-100" style={{ width: `${Math.min(debugInfo.blinkScore * 100, 100)}%` }} />
+                        </div>
+                        <div className={`text-[7px] font-mono mt-1 ${debugInfo.blinkScore > 0.5 ? 'text-cyan-400 font-bold' : 'text-white/20'}`}>
+                          THRESHOLD: 0.50
+                        </div>
+                      </div>
                     </div>
                   </div>
 
