@@ -10,13 +10,6 @@
 
 ---
 
-[![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![MediaPipe](https://img.shields.io/badge/MediaPipe-00B0FF?style=for-the-badge&logo=google&logoColor=white)](https://mediapipe.dev/)
-[![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=google&logoColor=white)](https://deepmind.google/technologies/gemini/)
-
----
-
 ## 🌟 Project Overview
 **SilentCare Pro** is a cutting-edge Human-Computer Interaction (HCI) platform designed for hospital environments. It bridges the communication gap for patients who are **non-verbal, paralyzed, or in high distress** by using advanced Computer Vision to translate body language into natural speech.
 
@@ -26,7 +19,7 @@
 
 ### 🔹 1. ASL & Gesture-to-Speech
 - **Hand Landmarks**: High-precision tracking of 21 hand points.
-- **Natural Translation**: Uses **Google Gemini 1.5 Flash** to convert sequences of signs into polite, context-aware sentences.
+- **Natural Translation**: Uses our **custom-trained ASL model** to convert sequences of signs into polite, context-aware sentences.
 
 ### 🔹 2. Gaze-Dwell Interaction (For Quadriplegic Patients)
 - **Eye Tracking**: Monitors Iris center points to detect where a patient is looking.
@@ -50,44 +43,39 @@
 - **Styling**: Tailwind CSS + Glassmorphism UI
 - **AI Core**: 
   - `MediaPipe` (Hand Gesture & Face Landmarker)
-  - `Google Generative AI SDK` (Gemini API)
 - **Backend**: Node.js + Socket.IO + SQLite
 - **Communication**: Real-time bi-directional events for Nurse-Patient syncing.
 
 ---
 
-## ⚙️ Setup & Installation
+## 🧠 Machine Learning Workflow (Custom-Trained)
 
-### 1. Prerequisites
-- Node.js (v18 or higher)
-- NPM or PNPM
+SilentCare Pro now uses a **Local Python Inference Server** instead of cloud APIs. This ensures 100% privacy and zero latency.
 
-### 2. Environment Variables
-Create a `.env` file in the root directory:
-```env
-VITE_GEMINI_API_KEY=YOUR_GOOGLE_AI_KEY_HERE
-```
-
-### 3. Install Dependencies
+### 1. Collect Clinical Gestures
+Record hand snapshots for hospital-specific needs (e.g., Water, Pain, Nurse).
 ```bash
-npm install
+python collect_data.py
 ```
 
-### 4. Run the Project
-**Start the project (Client & Server):**
+### 2. Train the "SilentCare Brain"
+Build your local Random Forest model based on the collected data.
 ```bash
-npm run dev
+python train_model.py
 ```
-*The app will be available at `http://localhost:3000`*
+
+### 3. Launch the Platform
+1. **Start ML Server**: `python ml_server.py` (Port 5001)
+2. **Start Web App**: `npm run dev` (Port 3000)
 
 ---
 
-## 📊 How it Works (The Big Data Aspect)
-1. **Data Acquisition**: Captures 60 frames per second from the webcam.
-2. **Feature Extraction**: Extracts 478 Face Landmarks and 21 Hand Landmarks.
-3. **Logic Throttling**: Processes global tracking every 100ms to ensure 80% lower CPU usage.
-4. **LLM Inference**: Sends landmark sequences to Gemini API for intent extraction.
-5. **Real-time Streaming**: Broadcasts alerts to the Nurse Station via WebSockets.
+## 💎 Features & Capabilities
+
+-   **Custom ML Core**: Uses a local Random Forest classifier (No Gemini API Key needed).
+-   **Local Translation**: Rule-based intent extraction replaces cloud LLMs.
+-   **Privacy-First**: No data ever leaves the local network.
+-   **Multi-Modal**: Gaze tracking and Distress monitoring remain integrated.
 
 ---
 

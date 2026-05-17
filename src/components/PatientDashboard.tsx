@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FilesetResolver, GestureRecognizer, FaceLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
-import { GoogleGenAI, Type } from '@google/genai';
+import { FilesetResolver, HandLandmarker, FaceLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
 import { Loader2, Volume2, Trash2, Send, Hand, User, Activity, HelpCircle, Bell } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 
@@ -41,7 +40,6 @@ interface PatientDashboardProps {
 export default function PatientDashboard({ user, onLogout, onShowGuide }: PatientDashboardProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [recognizer, setRecognizer] = useState<GestureRecognizer | null>(null);
   const [faceLandmarker, setFaceLandmarker] = useState<FaceLandmarker | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isWebcamActive, setIsWebcamActive] = useState(false);
@@ -63,7 +61,6 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
   const lastIndexYRef = useRef<number>(0);
   const tapVelocityRef = useRef<number>(0);
   const [showSOSOverlay, setShowSOSOverlay] = useState(false);
-  const recognizerRef = useRef<GestureRecognizer | null>(null);
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
   
   const [isBlinking, setIsBlinking] = useState(false);
@@ -85,11 +82,23 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
   const handleTranslateRef = useRef<(overrideBuffer?: string[]) => void>(() => {});
   const monitoringModeRef = useRef<'both' | 'signs' | 'eye'>(monitoringMode);
 
+  const [mlSocket, setMlSocket] = useState<Socket | null>(null);
+  const [mlPrediction, setMlPrediction] = useState<string>('None');
+
   useEffect(() => {
     const newSocket = io();
+    const pythonSocket = io('http://localhost:5001'); // Connect to local Python Brain
+    
     setSocket(newSocket);
+    setMlSocket(pythonSocket);
+
+    pythonSocket.on('prediction_result', (data) => {
+      setMlPrediction(data.gesture);
+    });
+
     return () => {
       newSocket.disconnect();
+      pythonSocket.disconnect();
     };
   }, []);
 
@@ -105,12 +114,15 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
     handleTranslateRef.current = (buffer) => handleTranslate(buffer);
   });
 
+  const [handLandmarker, setHandLandmarker] = useState<HandLandmarker | null>(null);
+  const handLandmarkerRef = useRef<HandLandmarker | null>(null);
+
   // Update refs when state changes
   useEffect(() => {
-    recognizerRef.current = recognizer;
+    handLandmarkerRef.current = handLandmarker;
     faceLandmarkerRef.current = faceLandmarker;
     monitoringModeRef.current = monitoringMode;
-  }, [recognizer, faceLandmarker, monitoringMode]);
+  }, [handLandmarker, faceLandmarker, monitoringMode]);
 
   // Initialize MediaPipe
   useEffect(() => {
@@ -119,29 +131,42 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
         const vision = await FilesetResolver.forVisionTasks(
           'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
         );
-        const gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task',
-            delegate: 'CPU'
-          },
-          runningMode: 'VIDEO',
-          numHands: 1
-        });
-        const faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
-            delegate: 'CPU'
-          },
-          outputFaceBlendshapes: true,
-          runningMode: 'VIDEO',
-          numFaces: 1
-        });
 
-        setRecognizer(gestureRecognizer);
-        setFaceLandmarker(faceLandmarker);
+        // Initialize Hand Landmarker (For our Custom Python Model)
+        try {
+          const handLandmarker = await HandLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+              delegate: 'CPU'
+            },
+            runningMode: 'VIDEO',
+            numHands: 1
+          });
+          setHandLandmarker(handLandmarker);
+        } catch (hError) {
+          console.error("Hand Landmarker failed to load:", hError);
+        }
+
+        // Initialize Face Landmarker (Required for Eye Tracking)
+        try {
+          const faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+              delegate: 'CPU'
+            },
+            outputFaceBlendshapes: true,
+            runningMode: 'VIDEO',
+            numFaces: 1
+          });
+          setFaceLandmarker(faceLandmarker);
+        } catch (fError) {
+          console.error("Face Landmarker failed to load:", fError);
+        }
+
         setIsLoaded(true);
       } catch (error) {
-        console.error("Failed to load MediaPipe Tasks:", error);
+        console.error("Failed to initialize MediaPipe:", error);
+        setIsLoaded(true);
       }
     }
     init();
@@ -174,10 +199,10 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
   const predictWebcam = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const currentRecognizer = recognizerRef.current;
+    const currentHandLandmarker = handLandmarkerRef.current;
     const currentFaceLandmarker = faceLandmarkerRef.current;
 
-    if (!video || !canvas || !currentRecognizer || !currentFaceLandmarker) {
+    if (!video || !canvas || !currentHandLandmarker || !currentFaceLandmarker) {
       animationRef.current = requestAnimationFrame(predictWebcam);
       return;
     }
@@ -190,7 +215,7 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
 
     const startTimeMs = performance.now();
       
-    // --- PERFORMANCE THROTTLE: Run AI every 100ms (10fps for AI is enough) ---
+    // --- PERFORMANCE THROTTLE: Run AI every 100ms ---
     const nowMs = Date.now();
     if (nowMs - lastVideoTimeRef.current < 100) {
       animationRef.current = requestAnimationFrame(predictWebcam);
@@ -199,7 +224,7 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
     lastVideoTimeRef.current = nowMs;
 
     try {
-      let results: any = null;
+      let handResults: any = null;
       let faceResults: any = null;
 
       let faceDetected = false;
@@ -209,8 +234,8 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
       const currentMode = monitoringModeRef.current;
 
       if (currentMode === 'both' || currentMode === 'signs') {
-        results = currentRecognizer.recognizeForVideo(video, startTimeMs);
-        if (results && results.landmarks && results.landmarks.length > 0) handDetected = true;
+        handResults = currentHandLandmarker.detectForVideo(video, startTimeMs);
+        if (handResults && handResults.landmarks && handResults.landmarks.length > 0) handDetected = true;
       }
       
       if (currentMode === 'both' || currentMode === 'eye') {
@@ -225,23 +250,21 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
         }
       }
       
-      // Update Debug Info (throttle for performance)
+      // Update Debug Info
       if (nowMs % 200 < 100) {
         setDebugInfo({ face: faceDetected, hand: handDetected, blinkScore: currentBlinkScore });
       }
 
-      let isOkGesture = false;
-      let isShakaGesture = false;
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.save();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const drawingUtils = new DrawingUtils(ctx);
         
-        // --- DRAW HAND LANDMARKS ---
-        if (results && results.landmarks && results.landmarks.length > 0) {
-          for (const landmarks of results.landmarks) {
-            drawingUtils.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, {
+        // --- DRAW HAND LANDMARKS & EXTRACT FEATURES ---
+        if (handResults && handResults.landmarks && handResults.landmarks.length > 0) {
+          for (const landmarks of handResults.landmarks) {
+            drawingUtils.drawConnectors(landmarks, HandLandmarker.HAND_CONNECTIONS, {
               color: '#00FF00',
               lineWidth: 4
             });
@@ -252,8 +275,7 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
             });
           }
           
-          // Custom gesture detection logic
-          const lm = results.landmarks[0];
+          const lm = handResults.landmarks[0];
           
           // OK Gesture (Thumb and index touching, others extended)
           const dist4_8 = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
@@ -285,6 +307,29 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
             isShakaGesture = true;
           }
 
+          // --- CUSTOM ML SERVER INTEGRATION ---
+          const normalizeLandmarks = (landmarks: any[]) => {
+            const dataX = landmarks.map(lm => lm.x);
+            const dataY = landmarks.map(lm => lm.y);
+            const baseX = dataX[0];
+            const baseY = dataY[0];
+            const normX = dataX.map(x => x - baseX);
+            const normY = dataY.map(y => y - baseY);
+            const maxDist = Math.max(...normX.map(Math.abs), ...normY.map(Math.abs));
+            
+            const features: number[] = [];
+            normX.forEach((x, i) => {
+              features.push(maxDist > 0 ? x / maxDist : x);
+              features.push(maxDist > 0 ? normY[i] / maxDist : normY[i]);
+            });
+            return features;
+          };
+
+          if (mlSocket && mlSocket.connected) {
+            const normalized = normalizeLandmarks(lm);
+            mlSocket.emit('predict_gesture', normalized);
+          }
+
           // --- POINT & CLICK LOGIC (HCI OVERHAUL) ---
           const indexTip = lm[8];
           const currentY = indexTip.y;
@@ -294,7 +339,6 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
           const isPointing = !isIndexFolded && isMiddleFolded && isRingFolded;
           
           // 2. Cursor/Hover Logic (Map normalized 0-1 to buttons)
-          // Buttons are roughly: Water(TL), Food(TR), Help(BL), Family(BR)
           let newHover: string | null = null;
           if (isPointing) {
             if (currentX < 0.4 && currentY > 0.6) newHover = 'Help';
@@ -302,7 +346,7 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
           }
           setHoveredButton(newHover);
 
-          // 3. De-conflicted Tap Logic (Only tap if pointing)
+          // 3. De-conflicted Tap Logic
           const deltaY = currentY - lastIndexYRef.current;
           const now = Date.now();
           
@@ -425,17 +469,14 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
       }
 
       // Process gesture
-      if (results && results.gestures && results.gestures.length > 0) {
-        const gestureName = results.gestures[0][0].categoryName;
-        const score = results.gestures[0][0].score;
-        
+      if (handResults && handResults.landmarks && handResults.landmarks.length > 0) {
         let detectedGesture = 'None';
-        if (isOkGesture) {
+        if (mlPrediction !== 'None' && mlPrediction !== 'Unknown' && mlPrediction !== 'No Model Trained') {
+          detectedGesture = mlPrediction;
+        } else if (isOkGesture) {
           detectedGesture = 'OK_Gesture';
         } else if (isShakaGesture) {
           detectedGesture = 'Call_Nurse';
-        } else if (score > 0.5 && gestureName !== 'None') {
-          detectedGesture = gestureName;
         }
         
         if (detectedGesture === 'OK_Gesture') {
@@ -513,80 +554,37 @@ export default function PatientDashboard({ user, onLogout, onShowGuide }: Patien
     setFinalMessage(null);
     setUrgency(null);
 
-    // --- STEP 1: LOCAL FAST-PATH (Instant Response) ---
+    // --- LOCAL TRANSLATION ENGINE (No API Key Required) ---
+    // Mapping buffer sequences to natural sentences
     const bufferKey = currentBuffer.join('+');
+    let translatedText = "";
+    let detectedUrgency = "medium";
+
     if (LOCAL_QUICK_TRANSLATIONS[bufferKey]) {
-      const result = LOCAL_QUICK_TRANSLATIONS[bufferKey];
-      console.log("⚡ Fast-Path Triggered:", bufferKey);
-      setFinalMessage(result.en);
-      setUrgency(result.urgency);
-      
-      speakText(result.en, false);
-      if (socket) {
-        socket.emit('send_message', {
-          patientName: user.name,
-          room: user.room,
-          text: result.en,
-          urgency: result.urgency,
-          resolved: false
-        });
-      }
-      setIsProcessing(false);
-      setGestureBuffer([]);
-      return; 
+      translatedText = LOCAL_QUICK_TRANSLATIONS[bufferKey].en;
+      detectedUrgency = LOCAL_QUICK_TRANSLATIONS[bufferKey].urgency;
+    } else {
+      // Fallback: Join unique words naturally
+      const uniqueWords = Array.from(new Set(currentBuffer));
+      translatedText = `Patient request: ${uniqueWords.join(' and ')}.`;
+      if (uniqueWords.includes('Help') || uniqueWords.includes('Pain')) detectedUrgency = "high";
     }
 
-    // --- STEP 2: CLOUD AI (For Complex Patterns) ---
-    const modelToUse = 'gemini-1.5-flash';
-    
-    try {
-      console.log(`Cloud AI translation: ${modelToUse}`);
-      const ai = new GoogleGenAI({ 
-        // @ts-ignore
-        apiKey: import.meta.env.VITE_GEMINI_API_KEY,
-        apiVersion: 'v1beta'
-      });
+    setFinalMessage(translatedText);
+    setUrgency(detectedUrgency);
+    speakText(translatedText, false);
 
-      const response = await ai.models.generateContent({
-        model: modelToUse,
-        contents: `Input Sequence: ${JSON.stringify(currentBuffer)}\nTranslate to a natural English sentence. Result in JSON {final_text, urgency}.`,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              final_text: { type: Type.STRING },
-              urgency: { type: Type.STRING }
-            },
-            required: ['final_text', 'urgency']
-          }
-        }
+    if (socket) {
+      socket.emit('send_message', {
+        patientName: user.name,
+        room: user.room,
+        text: translatedText,
+        urgency: detectedUrgency,
+        resolved: false
       });
-
-      const text = response.text;
-      if (text) {
-        const result = JSON.parse(text);
-        setFinalMessage(result.final_text);
-        setUrgency(result.urgency);
-        
-        speakText(result.final_text, false);
-        
-        if (socket) {
-          socket.emit('send_message', {
-            patientName: user.name,
-            room: user.room,
-            text: result.final_text,
-            urgency: result.urgency,
-            resolved: false
-          });
-        }
-        setGestureBuffer([]);
-      }
-    } catch (error: any) {
-      console.warn(`Translation Error:`, error.message);
-      setFinalMessage("System communication error. Please try again.");
     }
 
+    setGestureBuffer([]);
     setIsProcessing(false);
   };
 
